@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { getInitials } from "@/lib/format/initials";
 import { MessageBubble, type MessageItem } from "../message-bubble";
 import { MessageForm } from "../message-form";
+import { StatusSelect } from "../status-select";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -69,13 +70,14 @@ export default async function ConversationPage({
             <p className="text-xs text-muted-foreground">{contact?.phone_e164}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {contact?.opted_in && <Badge variant="outline">opt-in</Badge>}
           {contact && (
             <Link href={`/contatos/${contact.id}`} className="text-xs text-primary hover:underline">
               Ver contato
             </Link>
           )}
+          <StatusSelect conversationId={conversation.id} status={conversation.status} />
         </div>
       </div>
 

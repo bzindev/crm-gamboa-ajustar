@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -38,13 +39,13 @@ type NavItem = {
 // construída).
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/inbox", label: "Inbox", icon: InboxIcon },
+  { href: "/inbox", label: "Chat WhatsApp", icon: InboxIcon },
   { href: "/funil", label: "Funil", icon: KanbanSquare },
   { href: "/contatos", label: "Contatos", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/automacoes", label: "Automações", icon: Zap, minRole: "admin" },
   { href: "/configuracoes/equipe", label: "Equipe", icon: UserCog, minRole: "admin" },
-  { href: "/configuracoes/whatsapp", label: "Canal WhatsApp", icon: Smartphone, minRole: "admin" },
+  { href: "/configuracoes/whatsapp", label: "Conexões", icon: Smartphone, minRole: "admin" },
   { href: "/configuracoes/geral", label: "Configurações", icon: Settings, minRole: "admin" },
 ];
 
@@ -64,8 +65,16 @@ export function Sidebar({
 
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-4 bg-gradient-to-b from-[#0d0d0d] to-[#1a1a1a] p-3 text-sidebar-foreground print:hidden">
-      <div className="flex flex-col gap-0.5 px-1 pt-1">
-        <span className="text-base font-semibold text-white">CRM Gamboa</span>
+      <div className="flex flex-col gap-1 px-1 pt-1">
+        <div className="relative h-16 w-full overflow-hidden">
+          <Image
+            src="/logo-renault-gamboa.png"
+            alt="Renault Gamboa"
+            fill
+            priority
+            className="object-cover"
+          />
+        </div>
         <span className="text-xs text-sidebar-foreground/50">Admin Panel</span>
       </div>
 
