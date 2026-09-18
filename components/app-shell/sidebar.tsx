@@ -12,11 +12,15 @@ import {
   BarChart3,
   Zap,
   Settings,
+  Smartphone,
 } from "lucide-react";
 import { OrgSwitcher } from "./org-switcher";
 import { signOut } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getInitials } from "@/lib/format/initials";
+import { ROLE_LABELS } from "@/lib/auth/role-labels";
 import type { ActiveOrgMembership, OrgMembershipSummary } from "@/lib/auth/session";
 import { ROLE_RANK, type Role } from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
@@ -34,27 +38,24 @@ type NavItem = {
 // construída).
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/inbox", label: "Inbox", icon: InboxIcon, comingSoon: true },
+  { href: "/inbox", label: "Inbox", icon: InboxIcon },
   { href: "/funil", label: "Funil", icon: KanbanSquare },
   { href: "/contatos", label: "Contatos", icon: Users },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3, comingSoon: true },
-  { href: "/automacoes", label: "Automações", icon: Zap, minRole: "admin", comingSoon: true },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/automacoes", label: "Automações", icon: Zap, minRole: "admin" },
   { href: "/configuracoes/equipe", label: "Equipe", icon: UserCog, minRole: "admin" },
-  {
-    href: "/configuracoes/geral",
-    label: "Configurações",
-    icon: Settings,
-    minRole: "admin",
-    comingSoon: true,
-  },
+  { href: "/configuracoes/whatsapp", label: "Canal WhatsApp", icon: Smartphone, minRole: "admin" },
+  { href: "/configuracoes/geral", label: "Configurações", icon: Settings, minRole: "admin" },
 ];
 
 export function Sidebar({
   membership,
   orgs,
+  userName,
 }: {
   membership: ActiveOrgMembership;
   orgs: OrgMembershipSummary[];
+  userName: string;
 }) {
   const pathname = usePathname();
   const visibleItems = NAV_ITEMS.filter(
@@ -62,7 +63,12 @@ export function Sidebar({
   );
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col gap-4 border-r bg-sidebar p-3 text-sidebar-foreground">
+    <aside className="flex w-64 shrink-0 flex-col gap-4 bg-gradient-to-b from-[#0d0d0d] to-[#1a1a1a] p-3 text-sidebar-foreground print:hidden">
+      <div className="flex flex-col gap-0.5 px-1 pt-1">
+        <span className="text-base font-semibold text-white">CRM Gamboa</span>
+        <span className="text-xs text-sidebar-foreground/50">Admin Panel</span>
+      </div>
+
       <OrgSwitcher orgs={orgs} currentOrgId={membership.orgId} />
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
@@ -74,13 +80,15 @@ export function Sidebar({
             return (
               <span
                 key={item.href}
-                className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground/40"
+                className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground/40"
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2.5">
                   <Icon className="size-4" />
                   {item.label}
                 </span>
-                <Badge variant="secondary">em breve</Badge>
+                <Badge variant="secondary" className="bg-white/10 text-[10px] text-sidebar-foreground/70">
+                  em breve
+                </Badge>
               </span>
             );
           }
@@ -90,10 +98,10 @@ export function Sidebar({
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "hover:bg-sidebar-accent/60",
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                  : "text-sidebar-foreground hover:bg-white/5",
               )}
             >
               <Icon className="size-4" />
@@ -103,9 +111,26 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="mt-auto">
+      <div className="flex flex-col gap-3 border-t border-sidebar-border pt-3">
+        <div className="flex items-center gap-2.5 px-1">
+          <Avatar className="size-8 shrink-0">
+            <AvatarFallback className="bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">
+              {getInitials(userName)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium text-white">{userName}</span>
+            <span className="truncate text-xs text-sidebar-foreground/50">
+              {ROLE_LABELS[membership.role]}
+            </span>
+          </div>
+        </div>
         <form action={signOut}>
-          <Button variant="ghost" type="submit" className="w-full justify-start gap-2">
+          <Button
+            variant="ghost"
+            type="submit"
+            className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-white/5 hover:text-white"
+          >
             <LogOut className="size-4" />
             Sair
           </Button>

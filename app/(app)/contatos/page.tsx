@@ -13,6 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getInitials } from "@/lib/format/initials";
 import { ContactDialog } from "./contact-dialog";
 
 export default async function ContatosPage({
@@ -52,7 +54,7 @@ export default async function ContatosPage({
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Contatos</h1>
+          <h1 className="text-2xl font-bold">Contatos</h1>
           <p className="text-muted-foreground">
             Pessoas cadastradas em {membership.orgName}.
           </p>
@@ -81,7 +83,12 @@ export default async function ContatosPage({
           {contacts?.map((contact) => (
             <TableRow key={contact.id}>
               <TableCell>
-                <Link href={`/contatos/${contact.id}`} className="font-medium hover:underline">
+                <Link href={`/contatos/${contact.id}`} className="flex items-center gap-2.5 font-medium hover:underline">
+                  <Avatar className="size-7 shrink-0">
+                    <AvatarFallback className="bg-[#18181b] text-[10px] font-semibold text-white">
+                      {getInitials(contact.name)}
+                    </AvatarFallback>
+                  </Avatar>
                   {contact.name}
                 </Link>
               </TableCell>

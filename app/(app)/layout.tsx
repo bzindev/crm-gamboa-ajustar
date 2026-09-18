@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
-import { getActiveOrgMembership, listUserOrganizations } from "@/lib/auth/session";
+import {
+  getActiveOrgMembership,
+  listUserOrganizations,
+  getCurrentProfile,
+} from "@/lib/auth/session";
 import { Sidebar } from "@/components/app-shell/sidebar";
+import { Topbar } from "@/components/app-shell/topbar";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const membership = await getActiveOrgMembership();
@@ -12,12 +17,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/onboarding");
   }
 
-  const orgs = await listUserOrganizations();
+  const [orgs, profile] = await Promise.all([listUserOrganizations(), getCurrentProfile()]);
+  const userName = profile?.fullName ?? membership.orgName;
 
   return (
     <div className="flex flex-1">
-      <Sidebar membership={membership} orgs={orgs} />
-      <main className="flex-1 overflow-y-auto bg-muted/30 p-6">{children}</main>
+      <Sidebar membership={membership} orgs={orgs} userName={userName} />
+      <div className="flex flex-1 flex-col overflow-hidden print:overflow-visible">
+        <Topbar userName={userName} />
+        <main className="flex-1 overflow-y-auto bg-background p-6 print:overflow-visible print:bg-white print:p-0">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

@@ -13,17 +13,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import type { Stage, LeadCard } from "./kanban-board";
+import type { Stage, LeadCard, Temperature } from "./kanban-board";
+import { TEMPERATURE_LABELS } from "@/lib/validation/leads";
 
 type Contact = { id: string; name: string; phone_e164: string };
 type Member = { id: string; name: string };
 type Tag = { id: string; name: string; color: string };
+type Team = { id: string; name: string };
 
 export function LeadDialog({
   stages,
   contacts,
   members,
   tags,
+  teams,
   defaultStageId,
   lead,
   trigger,
@@ -32,6 +35,7 @@ export function LeadDialog({
   contacts: Contact[];
   members: Member[];
   tags: Tag[];
+  teams: Team[];
   defaultStageId?: string;
   lead?: LeadCard;
   trigger: React.ReactNode;
@@ -159,20 +163,92 @@ export function LeadDialog({
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="ownerId">Responsável</Label>
-            <select
-              id="ownerId"
-              name="ownerId"
-              defaultValue={lead?.ownerId ?? ""}
-              className="h-9 rounded-md border bg-transparent px-3 text-sm"
-            >
-              <option value="">Sem responsável</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="vehicleInterest">Veículo de interesse</Label>
+            <Input
+              id="vehicleInterest"
+              name="vehicleInterest"
+              placeholder="Ex.: Kardian Iconic"
+              defaultValue={lead?.vehicleInterest ?? ""}
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="temperature">Temperatura</Label>
+              <select
+                id="temperature"
+                name="temperature"
+                defaultValue={lead?.temperature ?? "cold"}
+                className="h-9 rounded-md border bg-transparent px-3 text-sm"
+              >
+                {(Object.keys(TEMPERATURE_LABELS) as Temperature[]).map((key) => (
+                  <option key={key} value={key}>
+                    {TEMPERATURE_LABELS[key]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="origin">Origem</Label>
+              <Input
+                id="origin"
+                name="origin"
+                list="origin-suggestions"
+                placeholder="Meta, Indicação..."
+                defaultValue={lead?.origin ?? ""}
+              />
+              <datalist id="origin-suggestions">
+                <option value="Meta / Instagram" />
+                <option value="Google" />
+                <option value="Indicação" />
+                <option value="Loja física" />
+                <option value="Site" />
+              </datalist>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign">Campanha</Label>
+              <Input
+                id="campaign"
+                name="campaign"
+                placeholder="Opcional"
+                defaultValue={lead?.campaign ?? ""}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ownerId">Responsável</Label>
+              <select
+                id="ownerId"
+                name="ownerId"
+                defaultValue={lead?.ownerId ?? ""}
+                className="h-9 rounded-md border bg-transparent px-3 text-sm"
+              >
+                <option value="">Sem responsável</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="teamId">Setor</Label>
+              <select
+                id="teamId"
+                name="teamId"
+                defaultValue={lead?.teamId ?? ""}
+                className="h-9 rounded-md border bg-transparent px-3 text-sm"
+              >
+                <option value="">Sem setor</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {tags.length > 0 && (

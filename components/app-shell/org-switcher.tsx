@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { ChevronsUpDown } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,7 +34,7 @@ export function OrgSwitcher({
 
   if (orgs.length <= 1) {
     return (
-      <div className="rounded-md border px-3 py-2 text-sm font-medium">
+      <div className="rounded-xl border border-sidebar-border bg-white/5 px-3 py-2 text-sm font-medium text-sidebar-foreground">
         {current?.orgName ?? "Organização"}
       </div>
     );
@@ -43,10 +44,10 @@ export function OrgSwitcher({
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={isPending}
-        className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+        className="flex w-full items-center justify-between rounded-xl border border-sidebar-border bg-white/5 px-3 py-2 text-sm font-medium text-sidebar-foreground hover:bg-white/10"
       >
         <span className="truncate">{current?.orgName ?? "Organização"}</span>
-        <span className="text-muted-foreground">⇅</span>
+        <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuLabel>Trocar organização</DropdownMenuLabel>

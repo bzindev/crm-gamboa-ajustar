@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { calculateNewPosition } from "@/lib/crm/position";
+import { logAudit } from "@/lib/audit/log";
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -45,6 +46,11 @@ export async function createLead(
     newContactName: formData.get("newContactName") || undefined,
     newContactPhone: formData.get("newContactPhone") || undefined,
     tagIds: formData.getAll("tagIds"),
+    vehicleInterest: formData.get("vehicleInterest") || undefined,
+    temperature: formData.get("temperature") || undefined,
+    origin: formData.get("origin") || undefined,
+    campaign: formData.get("campaign") || undefined,
+    teamId: formData.get("teamId") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -89,6 +95,11 @@ export async function createLead(
         parsed.data.valueReais !== undefined ? Math.round(parsed.data.valueReais * 100) : null,
       owner_id: parsed.data.ownerId || null,
       position,
+      vehicle_interest: parsed.data.vehicleInterest || null,
+      temperature: parsed.data.temperature ?? "cold",
+      origin: parsed.data.origin || null,
+      campaign: parsed.data.campaign || null,
+      team_id: parsed.data.teamId || null,
     })
     .select("id")
     .single();
@@ -107,6 +118,15 @@ export async function createLead(
       })),
     );
   }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "lead.created",
+    resourceType: "leads",
+    resourceId: lead.id,
+    after: { title: parsed.data.title, stage_id: parsed.data.stageId },
+  });
 
   revalidatePath("/funil");
   return { success: true };
@@ -130,6 +150,11 @@ export async function updateLead(
     tagIds: formData.getAll("tagIds"),
     status: formData.get("status") || undefined,
     lostReason: formData.get("lostReason") || undefined,
+    vehicleInterest: formData.get("vehicleInterest") || undefined,
+    temperature: formData.get("temperature") || undefined,
+    origin: formData.get("origin") || undefined,
+    campaign: formData.get("campaign") || undefined,
+    teamId: formData.get("teamId") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -139,7 +164,7 @@ export async function updateLead(
 
   const { data: current } = await supabase
     .from("leads")
-    .select("stage_id, position")
+    .select("stage_id, position, status, title")
     .eq("id", parsed.data.id)
     .single();
 
@@ -163,6 +188,11 @@ export async function updateLead(
       owner_id: parsed.data.ownerId || null,
       status: parsed.data.status ?? "open",
       lost_reason: parsed.data.status === "lost" ? parsed.data.lostReason ?? null : null,
+      vehicle_interest: parsed.data.vehicleInterest || null,
+      temperature: parsed.data.temperature ?? "cold",
+      origin: parsed.data.origin || null,
+      campaign: parsed.data.campaign || null,
+      team_id: parsed.data.teamId || null,
     })
     .eq("id", parsed.data.id);
 
@@ -184,6 +214,16 @@ export async function updateLead(
     );
   }
 
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "lead.updated",
+    resourceType: "leads",
+    resourceId: parsed.data.id,
+    before: { stage_id: current.stage_id, status: current.status },
+    after: { stage_id: parsed.data.stageId, status: parsed.data.status ?? "open" },
+  });
+
   revalidatePath("/funil");
   return { success: true };
 }
@@ -201,6 +241,13 @@ export async function moveLead(input: unknown): Promise<{ error?: string }> {
   }
 
   const supabase = await createClient();
+
+  const { data: current } = await supabase
+    .from("leads")
+    .select("stage_id")
+    .eq("id", parsed.data.leadId)
+    .single();
+
   const { error } = await supabase
     .from("leads")
     .update({ stage_id: parsed.data.stageId, position: parsed.data.position })
@@ -209,6 +256,18 @@ export async function moveLead(input: unknown): Promise<{ error?: string }> {
   if (error) {
     console.error("[leads] moveLead falhou:", error.code, error.message);
     return { error: "Não foi possível mover o lead." };
+  }
+
+  if (current && current.stage_id !== parsed.data.stageId) {
+    await logAudit(supabase, {
+      orgId: membership.orgId,
+      actorId: membership.userId,
+      action: "lead.stage_changed",
+      resourceType: "leads",
+      resourceId: parsed.data.leadId,
+      before: { stage_id: current.stage_id },
+      after: { stage_id: parsed.data.stageId },
+    });
   }
 
   revalidatePath("/funil");

@@ -1,9 +1,16 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { setActiveOrgCookie } from "@/lib/auth/active-org-cookie";
-import { createOrganizationSchema } from "@/lib/validation/organizations";
+import { requireRole, ForbiddenError } from "@/lib/auth/require-role";
+import { logAudit } from "@/lib/audit/log";
+import {
+  createOrganizationSchema,
+  updateOrganizationSchema,
+  updateStageAlertDaysSchema,
+} from "@/lib/validation/organizations";
 
 export type ActionState = { error?: string } | null;
 
@@ -36,4 +43,88 @@ export async function createOrganization(
 
   await setActiveOrgCookie(data.org_id);
   redirect("/dashboard");
+}
+
+export async function updateOrganization(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsed = updateOrganizationSchema.safeParse({ name: formData.get("name") });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ name: parsed.data.name })
+    .eq("id", membership.orgId);
+
+  if (error) {
+    console.error("[organizations] updateOrganization falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "organization.updated",
+    resourceType: "organizations",
+    resourceId: membership.orgId,
+    after: { name: parsed.data.name },
+  });
+
+  revalidatePath("/configuracoes/geral");
+  return null;
+}
+
+export async function updateStageAlertDays(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsed = updateStageAlertDaysSchema.safeParse({
+    stageAlertDays: formData.get("stageAlertDays"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ stage_alert_days: parsed.data.stageAlertDays })
+    .eq("id", membership.orgId);
+
+  if (error) {
+    console.error("[organizations] updateStageAlertDays falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "organization.stage_alert_days_updated",
+    resourceType: "organizations",
+    resourceId: membership.orgId,
+    after: { stage_alert_days: parsed.data.stageAlertDays },
+  });
+
+  revalidatePath("/automacoes");
+  revalidatePath("/dashboard");
+  revalidatePath("/funil");
+  return null;
 }

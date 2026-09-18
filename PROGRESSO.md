@@ -1,5 +1,182 @@
 # PROGRESSO
 
+## 2026-09-18 (continuação 2) — Configurações, Relatórios, Automações e Inbox do WhatsApp
+
+**Configurações (`/configuracoes/geral`):** formulário simples para renomear
+a organização, admin/owner só. `updateOrganization` grava em `audit_log`.
+
+**Relatórios (`/relatorios`):** filtro por período (data de/até, form GET),
+cartela de clientes que entraram em contato no período (hoje isso é
+`leads.created_at`, já que sem WhatsApp conectado o cadastro manual do lead
+é o único ponto de entrada — quando o Inbox passar a criar lead a partir da
+primeira mensagem, a consulta não muda). Cards de resumo (total, ganhos,
+perdidos, valor em aberto). Exportação **sem biblioteca nova**, como
+combinado:
+- CSV: `/relatorios/export` (Route Handler — precisa de `Content-Disposition`
+  para forçar download, isso não dá para fazer só com Server Action).
+  BOM UTF-8 no início do arquivo para o Excel do Windows não bagunçar
+  acentuação.
+- PDF: botão "Imprimir" chama `window.print()`; `print:hidden` em
+  sidebar/topbar/filtros e `print:border-none` no card da tabela via CSS
+  (`components/app-shell/sidebar.tsx`, `topbar.tsx`, `app/(app)/layout.tsx`).
+
+**Automações (`/automacoes`):** o limite de "lead parado" (antes fixo em `3`
+dias direto no código, em dois arquivos diferentes) virou
+`organizations.stage_alert_days` (migration `0011`), editável nesta tela.
+`dashboard/page.tsx` e `funil/kanban-board.tsx` agora recebem esse número
+por prop em vez do valor fixo. A tela também lista as últimas 50 linhas de
+`event_log` (fila de automação) com status — hoje tudo fica "pendente"
+porque não existe worker rodando ainda em produção; isso é o esperado, não
+bug.
+
+**Inbox do WhatsApp — infraestrutura completa, pronta para o número real:**
+seguindo exatamente o que ficou anotado como pendente na pausa da Fase 2
+(ver entrada de 2026-09-15 mais abaixo), sem inventar arquitetura nova:
+- Migration `0006` (`fn_claim_pending_events`) finalmente **precisa ser
+  aplicada** — nada dependia dela até agora, agora o worker depende.
+- `/configuracoes/whatsapp`: tela de conexão do canal. Valida
+  WABA ID + Phone Number ID + token contra a Graph API de verdade
+  (`getPhoneNumberInfo`) antes de salvar; token cifrado em Node
+  (`lib/crypto/token-cipher.ts`, já existia) antes de ir para
+  `channels.access_token_encrypted`. Mostra a Callback URL e o Verify Token
+  prontos para colar no painel da Meta.
+- `app/api/webhooks/whatsapp/route.ts`: `GET` responde o handshake
+  (`hub.challenge`) só se o verify token bater; `POST` valida a assinatura
+  HMAC do corpo cru **antes** de qualquer parse, grava em
+  `webhook_deliveries`, enfileira em `event_log` (`whatsapp_inbound_message`
+  / `whatsapp_status_update`, com `dedupe_key` — reentrega da Meta é
+  esperada, não erro) e responde 200 imediatamente. Não processa nada pesado
+  dentro do webhook (regra do `CLAUDE.md`).
+- `app/api/cron/process-events/route.ts` + `lib/whatsapp/process-events.ts`:
+  worker protegido por `CRON_SECRET` no header `Authorization`. Reivindica
+  lote via `fn_claim_pending_events`, cria/atualiza contato e conversa,
+  grava a mensagem (idempotente no `wamid`), atualiza status de entrega.
+  `vercel.json` agenda esse endpoint a cada minuto (Vercel injeta o
+  `Authorization: Bearer $CRON_SECRET` sozinho quando a env var existe).
+- `/inbox`: layout de duas colunas (lista de conversas + thread). Sem canal
+  conectado, mostra call-to-action para `/configuracoes/whatsapp` em vez de
+  uma tela vazia sem explicação. Envio de texto (`lib/actions/messages.ts`)
+  respeita a janela de 24h da Cloud API (`lib/whatsapp/window.ts`) — fora
+  da janela, o campo de texto vem desabilitado com o aviso, sem tentar
+  chamar a Graph API e falhar.
+- **Ainda não testado ao vivo** — mesma condição de sempre: precisa do
+  número real conectado. Todo esse código foi escrito e passa
+  typecheck/lint/build, mas o critério de fechar a Fase 2 continua sendo
+  "mando mensagem do celular e ela aparece em menos de 5s".
+
+**Pendente / próximos passos:**
+- Rodar migrations `0006` e `0011` no Supabase (SQL Editor) — sem isso,
+  `/dashboard`, `/funil` e `/automacoes` quebram (coluna
+  `stage_alert_days` não existe) e o worker do WhatsApp não tem a função
+  que precisa.
+- Conectar o número real e testar o fluxo ponta a ponta.
+- Realtime (mensagem nova aparecer sem recarregar) ficou fora de propósito
+  — sem número conectado não tinha como testar; a tela hoje só atualiza ao
+  navegar.
+
+## 2026-09-18 (continuação) — Reskin visual + performance + Setores
+
+**Performance (causas reais encontradas e corrigidas, não achismo):**
+- Nenhuma rota tinha `loading.tsx` — navegação ficava "congelada" até todo
+  o carregamento terminar. Adicionado skeleton por rota (dashboard, funil,
+  contatos, perfil do contato, equipe).
+- `getUser()`/`getActiveOrgMembership()` rodavam em duplicidade dentro da
+  mesma página (layout chamava, página chamava de novo) — cada chamada é
+  uma validação de JWT contra o Supabase pela rede. Envolvidas em `cache()`
+  do React (`lib/auth/session.ts`) — dentro de uma mesma requisição, a
+  validação agora acontece uma vez só, não 3-4 vezes.
+- `contatos/[contactId]/page.tsx` tinha uma espera desnecessária (buscava
+  contato, só depois buscava os leads, mesmo os leads não dependendo do
+  resultado do contato) — as duas rodam em paralelo agora.
+
+**Reskin visual completo** (especificação detalhada dada pelo usuário —
+preto + amarelo, estilo "dashboard SaaS premium"):
+- `app/globals.css`: paleta nova (fundo `#f8fafc`, cards brancos, primário
+  `#facc15`, sidebar em gradiente `#0d0d0d→#1a1a1a`).
+- Sidebar: gradiente escuro, item ativo em amarelo sólido com texto preto,
+  rodapé com avatar+nome+cargo do usuário.
+- Header novo (`components/app-shell/topbar.tsx`): busca (só visual, não
+  filtra nada ainda), sino de notificação (decorativo, sem contagem real),
+  avatar com menu de sair.
+- Dashboard: banner de boas-vindas em gradiente preto com mini-cards
+  translúcidos, KPIs com ícone circular alternado + variação percentual
+  real vs. mês anterior (cálculo novo, só leitura, não mexe em nenhuma
+  mutação), grid de ações rápidas, cards de conteúdo com avatar/iniciais.
+- `components/ui/card.tsx`: sombra sutil + elevação no hover, aplicado a
+  toda a aplicação de uma vez (Contatos, Funil, Equipe herdam de graça).
+- `lib/format/initials.ts` criado para não duplicar a lógica de iniciais
+  que já existia dentro do kanban.
+
+**Setores (nova estrutura, não é a mesma tela de "Equipe"):**
+- Migration `0010`: tabelas `teams` e `team_members`, coluna
+  `leads.team_id`. 4 setores padrão semeados para orgs existentes e para
+  organizações novas (`fn_create_organization` atualizada):
+  Venda Veículos Novos, Setor de Peças, Setor de Pós-Vendas, Gerência.
+- Tela de Equipe ganhou seção "Setores": criar setor, marcar/desmarcar
+  membros por setor (checkbox).
+- Lead ganhou campo "Setor" (select) — já filtrável/visível no card do
+  funil como badge.
+- **Importante:** o roteamento automático de conversa do WhatsApp pro
+  setor certo por intenção do cliente **não existe ainda** — isso depende
+  do canal estar conectado (Fase 2, pausada) e de automações. O que existe
+  hoje é só a estrutura de dados + atribuição manual.
+
+**Pendente:**
+- Relatórios e Automações continuam só "em breve" na sidebar — ainda não
+  construídos.
+- Busca do header e sino de notificação são só visuais, sem lógica real
+  ainda.
+- `audit_log` agora recebe `lead.created`/`lead.updated`/`lead.stage_changed`/
+  `team.created`/`team.deleted` — ainda não cobre todas as mutações
+  (contatos, convites, tags, configurações de pipeline continuam sem
+  auditoria).
+
+## 2026-09-18 — CRM adaptado para concessionária (Renault Gamboa)
+
+**Decisão de escopo** (o usuário pediu um sistema completo de concessionária
+— veículos/estoque, financiamento, multi-loja, agentes de IA configuráveis
+— e depois recuou): **não** vamos construir módulos de Financiamento,
+Estoque, Veículos (como cadastro/inventário) nem Lojas. O pedido virou
+"estrutura bacana funcionável e moderna" em cima do que já existe.
+
+**Feito:**
+- Repositório publicado no GitHub: `https://github.com/bzindev/crm-gamboa-ajustar`
+  (privado). `.env.local` confirmado fora do controle de versão.
+- Tema visual trocado para preto + amarelo (era verde) — ver
+  `app/globals.css`. Foi a 3ª tentativa de cor nesta conversa; **não trocar
+  de novo sem pedido explícito**, já causou retrabalho.
+- Bug real corrigido: `--font-sans: var(--font-sans)` era uma referência
+  circular deixada por uma tentativa parcial de `shadcn init` — o texto
+  caía na fonte serifada padrão do navegador em vez da Geist Sans.
+- Sidebar simplificada para lista plana (sem cabeçalho de grupo — o
+  DeskcommCRM de referência também não agrupa), com mais itens "em breve"
+  (Relatórios, Automações, Configurações gerais).
+- Página de perfil do contato (`/contatos/[contactId]`) com histórico de
+  leads e tags agregadas.
+- **Migration `0008`**: funil trocado de `Novo/Em contato/Proposta/Fechado`
+  para o vocabulário de concessionária:
+  `Lead → Em atendimento → Follow-up → Agendado → Compareceu → No-show →
+  Venda → Perdido`. Os 8 leads de exemplo foram redistribuídos
+  automaticamente pela própria migration (won → Venda, lost → Perdido).
+  `fn_create_organization` atualizada para organizações novas já nascerem
+  com esse funil.
+- Campos novos em `leads`: `vehicle_interest` (texto livre, sem tabela de
+  estoque), `temperature` (`cold`/`warm`/`hot`, exibido como badge no
+  card — quente usa a cor primária + 🔥), `origin`, `campaign`.
+- Dashboard ganhou card "Leads quentes".
+- Dados de exemplo enriquecidos com esses campos (script rodado uma vez,
+  não versionado — os valores já estão no banco).
+
+**Pendente:**
+- `audit_log` schema existe mas nenhuma action grava nele ainda — dívida
+  real, viola a regra 4 do `CLAUDE.md`. Vale corrigir antes do projeto
+  crescer mais.
+- WhatsApp continua pausado (número em uso em outro CRM).
+- Sem decisão de provedor de IA ainda.
+- Sidebar lista "Automações", "Chamados", "Agenda", "Disparo em massa",
+  "Templates WhatsApp" como possíveis próximos módulos — nenhum tem
+  schema ou tela ainda.
+
 ## 2026-09-15 — Fase 2 (canal Meta) — PAUSADA, retomar quando o número estiver livre
 
 O número que será usado neste projeto está hoje conectado a outro CRM —

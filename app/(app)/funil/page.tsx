@@ -12,43 +12,58 @@ export default async function FunilPage() {
   const supabase = await createClient();
   const pipelineId = await getDefaultPipelineId(supabase, membership.orgId);
 
-  const [{ data: pipeline }, { data: stages }, { data: leadsData }, { data: contacts }, { data: tags }, { data: members }] =
-    await Promise.all([
-      supabase.from("pipelines").select("id, vocabulary").eq("id", pipelineId).single(),
-      supabase
-        .from("pipeline_stages")
-        .select("id, name, position, is_won, is_lost")
-        .eq("pipeline_id", pipelineId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("leads")
-        .select(
-          "id, title, value_cents, status, position, stage_id, contact_id, owner_id, lost_reason, contacts(name, phone_e164), profiles(full_name), lead_tags(tags(id, name, color))",
-        )
-        .eq("pipeline_id", pipelineId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("contacts")
-        .select("id, name, phone_e164")
-        .eq("org_id", membership.orgId)
-        .order("name", { ascending: true }),
-      supabase
-        .from("tags")
-        .select("id, name, color")
-        .eq("org_id", membership.orgId)
-        .order("name", { ascending: true }),
-      supabase
-        .from("org_members")
-        .select("user_id, profiles(full_name)")
-        .eq("org_id", membership.orgId)
-        .not("accepted_at", "is", null),
-    ]);
+  const [
+    { data: pipeline },
+    { data: stages },
+    { data: leadsData },
+    { data: contacts },
+    { data: tags },
+    { data: members },
+    { data: teams },
+    { data: org },
+  ] = await Promise.all([
+    supabase.from("pipelines").select("id, vocabulary").eq("id", pipelineId).single(),
+    supabase
+      .from("pipeline_stages")
+      .select("id, name, position, is_won, is_lost")
+      .eq("pipeline_id", pipelineId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("leads")
+      .select(
+        "id, title, value_cents, status, position, stage_id, contact_id, owner_id, lost_reason, vehicle_interest, temperature, origin, campaign, team_id, stage_entered_at, contacts(name, phone_e164), profiles(full_name), lead_tags(tags(id, name, color)), teams(name)",
+      )
+      .eq("pipeline_id", pipelineId)
+      .order("position", { ascending: true }),
+    supabase
+      .from("contacts")
+      .select("id, name, phone_e164")
+      .eq("org_id", membership.orgId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("tags")
+      .select("id, name, color")
+      .eq("org_id", membership.orgId)
+      .order("name", { ascending: true }),
+    supabase
+      .from("org_members")
+      .select("user_id, profiles(full_name)")
+      .eq("org_id", membership.orgId)
+      .not("accepted_at", "is", null),
+    supabase.from("teams").select("id, name").eq("org_id", membership.orgId).order("name"),
+    supabase
+      .from("organizations")
+      .select("stage_alert_days")
+      .eq("id", membership.orgId)
+      .single(),
+  ]);
 
   const stagesTyped: Stage[] = stages ?? [];
 
   const leads: LeadCard[] = (leadsData ?? []).map((lead) => {
     const contact = Array.isArray(lead.contacts) ? lead.contacts[0] : lead.contacts;
     const owner = Array.isArray(lead.profiles) ? lead.profiles[0] : lead.profiles;
+    const team = Array.isArray(lead.teams) ? lead.teams[0] : lead.teams;
     const leadTags = (lead.lead_tags ?? [])
       .map((lt) => (Array.isArray(lt.tags) ? lt.tags[0] : lt.tags))
       .filter((t): t is { id: string; name: string; color: string } => Boolean(t));
@@ -64,6 +79,13 @@ export default async function FunilPage() {
       ownerName: owner?.full_name ?? null,
       ownerId: lead.owner_id,
       lostReason: lead.lost_reason,
+      vehicleInterest: lead.vehicle_interest,
+      temperature: lead.temperature,
+      origin: lead.origin,
+      campaign: lead.campaign,
+      teamId: lead.team_id,
+      teamName: team?.name ?? null,
+      stageEnteredAt: lead.stage_entered_at,
       tags: leadTags,
     };
   });
@@ -88,8 +110,10 @@ export default async function FunilPage() {
       contacts={contacts ?? []}
       tags={tags ?? []}
       members={memberOptions}
+      teams={teams ?? []}
       vocabulary={vocabulary}
       canManageSettings={canManageSettings}
+      stageAlertDays={org?.stage_alert_days ?? 3}
     />
   );
 }

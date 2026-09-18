@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { ROLE_RANK, type Role } from "@/lib/auth/roles";
@@ -14,17 +15,20 @@ export type ActiveOrgMembership = {
 };
 
 /**
- * getUser() valida o JWT do cookie contra o Supabase Auth a cada chamada.
- * Nunca usar getSession() no servidor: ela só lê o cookie local, sem
- * confirmar que o token ainda é válido.
+ * getUser() valida o JWT do cookie contra o Supabase Auth a cada chamada —
+ * é uma chamada de rede de verdade, não só leitura de cookie (por isso
+ * nunca getSession() aqui). `cache()` do React garante que, mesmo se
+ * layout + página + algum componente chamarem isso na mesma renderização,
+ * a validação de rede acontece só uma vez por requisição — sem isso, uma
+ * página comum chegava a validar o JWT 3-4 vezes seguidas.
  */
-export async function getUser() {
+export const getUser = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
 /**
  * Resolve a organização ativa do usuário logado.
@@ -39,14 +43,11 @@ export async function getUser() {
  * Retorna null quando o usuário está autenticado mas ainda não é membro
  * aceito de nenhuma organização — sinal para redirecionar a /onboarding.
  */
-export async function getActiveOrgMembership(): Promise<ActiveOrgMembership | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+export const getActiveOrgMembership = cache(async (): Promise<ActiveOrgMembership | null> => {
+  const user = await getUser();
   if (!user) return null;
 
+  const supabase = await createClient();
   const { data: memberships, error } = await supabase
     .from("org_members")
     .select("role, org_id, organizations(name, slug)")
@@ -76,7 +77,22 @@ export async function getActiveOrgMembership(): Promise<ActiveOrgMembership | nu
     role: chosen.role as Role,
     userId: user.id,
   };
-}
+});
+
+/** Nome de exibição do usuário logado — usado no rodapé da sidebar e no header. */
+export const getCurrentProfile = cache(async (): Promise<{ fullName: string | null } | null> => {
+  const user = await getUser();
+  if (!user) return null;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .single();
+
+  return { fullName: data?.full_name ?? null };
+});
 
 export type OrgMembershipSummary = {
   orgId: string;
@@ -85,13 +101,11 @@ export type OrgMembershipSummary = {
 };
 
 /** Todas as organizações de que o usuário logado é membro aceito — para o seletor da sidebar. */
-export async function listUserOrganizations(): Promise<OrgMembershipSummary[]> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const listUserOrganizations = cache(async (): Promise<OrgMembershipSummary[]> => {
+  const user = await getUser();
   if (!user) return [];
 
+  const supabase = await createClient();
   const { data: memberships } = await supabase
     .from("org_members")
     .select("role, org_id, organizations(name)")
@@ -107,4 +121,4 @@ export async function listUserOrganizations(): Promise<OrgMembershipSummary[]> {
       return { orgId: m.org_id, orgName: org.name, role: m.role as Role };
     })
     .filter((m): m is OrgMembershipSummary => m !== null);
-}
+});

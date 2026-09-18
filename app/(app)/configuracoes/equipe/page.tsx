@@ -1,6 +1,7 @@
 import { requireRoleOrRedirect } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { ROLE_LABELS } from "@/lib/auth/role-labels";
+import { getInitials } from "@/lib/format/initials";
 import type { Role } from "@/lib/auth/session";
 import {
   Card,
@@ -10,10 +11,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { InviteForm } from "./invite-form";
+import { TeamsSection } from "./teams-section";
 
 type MemberRow = {
   id: string;
+  user_id: string;
   role: Role;
   accepted_at: string | null;
   profiles: { full_name: string | null } | { full_name: string | null }[] | null;
@@ -35,26 +39,42 @@ export default async function EquipePage() {
   // A RLS de org_members só garante "organização sua" — como o usuário
   // pode pertencer a mais de uma, o filtro pela organização ATIVA é
   // responsabilidade explícita da query, não da RLS.
-  const [{ data: members }, { data: invites }] = await Promise.all([
-    supabase
-      .from("org_members")
-      .select("id, role, accepted_at, profiles(full_name)")
-      .eq("org_id", membership.orgId)
-      .order("accepted_at", { ascending: true }),
-    supabase
-      .from("org_invites")
-      .select("id, email, role, expires_at")
-      .eq("org_id", membership.orgId)
-      .is("accepted_at", null)
-      .order("created_at", { ascending: false }),
-  ]);
+  const [{ data: members }, { data: invites }, { data: teamsData }, { data: teamMembers }] =
+    await Promise.all([
+      supabase
+        .from("org_members")
+        .select("id, user_id, role, accepted_at, profiles(full_name)")
+        .eq("org_id", membership.orgId)
+        .not("accepted_at", "is", null)
+        .order("accepted_at", { ascending: true }),
+      supabase
+        .from("org_invites")
+        .select("id, email, role, expires_at")
+        .eq("org_id", membership.orgId)
+        .is("accepted_at", null)
+        .order("created_at", { ascending: false }),
+      supabase.from("teams").select("id, name").eq("org_id", membership.orgId).order("name"),
+      supabase.from("team_members").select("team_id, user_id").eq("org_id", membership.orgId),
+    ]);
+
+  const memberList = (members as MemberRow[] | null) ?? [];
+  const memberOptions = memberList.map((m) => {
+    const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+    return { userId: m.user_id, name: profile?.full_name ?? "(sem nome)" };
+  });
+
+  const teams = (teamsData ?? []).map((team) => ({
+    id: team.id,
+    name: team.name,
+    memberIds: (teamMembers ?? []).filter((tm) => tm.team_id === team.id).map((tm) => tm.user_id),
+  }));
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold">Equipe</h1>
+        <h1 className="text-2xl font-bold">Equipe</h1>
         <p className="text-muted-foreground">
-          Membros e convites pendentes de {membership.orgName}.
+          Membros, convites e setores de {membership.orgName}.
         </p>
       </div>
 
@@ -76,22 +96,28 @@ export default async function EquipePage() {
           <CardTitle>Membros</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {(members as MemberRow[] | null)?.map((member) => {
-            const profile = Array.isArray(member.profiles)
-              ? member.profiles[0]
-              : member.profiles;
+          {memberList.map((member) => {
+            const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
+            const name = profile?.full_name ?? "(sem nome)";
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm"
               >
-                <span>{profile?.full_name ?? "(sem nome)"}</span>
+                <Avatar className="size-8 shrink-0">
+                  <AvatarFallback className="bg-[#18181b] text-xs font-semibold text-white">
+                    {getInitials(name)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="flex-1">{name}</span>
                 <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
               </div>
             );
           })}
         </CardContent>
       </Card>
+
+      <TeamsSection teams={teams} members={memberOptions} />
 
       {invites && invites.length > 0 && (
         <Card>
@@ -102,7 +128,7 @@ export default async function EquipePage() {
             {(invites as InviteRow[]).map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm"
               >
                 <span>{invite.email}</span>
                 <div className="flex items-center gap-2">

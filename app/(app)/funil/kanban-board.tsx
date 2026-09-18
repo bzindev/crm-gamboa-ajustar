@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { moveLead } from "@/lib/actions/leads";
 import { calculateNewPosition } from "@/lib/crm/position";
 import { formatCents } from "@/lib/format/currency";
+import { getInitials } from "@/lib/format/initials";
 import { cn } from "@/lib/utils";
 import type { Vocabulary } from "@/lib/validation/pipelines";
 import { LeadDialog } from "./lead-dialog";
@@ -41,6 +42,8 @@ export type Stage = {
   is_lost: boolean;
 };
 
+export type Temperature = "cold" | "warm" | "hot";
+
 export type LeadCard = {
   id: string;
   title: string;
@@ -52,12 +55,31 @@ export type LeadCard = {
   ownerName: string | null;
   ownerId: string | null;
   lostReason: string | null;
+  vehicleInterest: string | null;
+  temperature: Temperature;
+  origin: string | null;
+  campaign: string | null;
+  teamName: string | null;
+  teamId: string | null;
+  stageEnteredAt: string;
   tags: { id: string; name: string; color: string }[];
+};
+
+function daysInStage(stageEnteredAt: string): number {
+  const ms = Date.now() - new Date(stageEnteredAt).getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+const TEMPERATURE_BADGE: Record<Temperature, { label: string; className: string }> = {
+  cold: { label: "Frio", className: "bg-muted text-muted-foreground" },
+  warm: { label: "Morno", className: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300" },
+  hot: { label: "🔥 Quente", className: "bg-primary text-primary-foreground" },
 };
 
 type Contact = { id: string; name: string; phone_e164: string };
 type Member = { id: string; name: string };
 type Tag = { id: string; name: string; color: string };
+type Team = { id: string; name: string };
 type Columns = Record<string, LeadCard[]>;
 
 function groupByStage(stages: Stage[], leads: LeadCard[]): Columns {
@@ -69,12 +91,6 @@ function groupByStage(stages: Stage[], leads: LeadCard[]): Columns {
   return grouped;
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  const initials = parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0].slice(0, 2);
-  return initials.toUpperCase();
-}
-
 /** Fundo bem claro + texto na própria cor da tag — mais legível que só um contorno. */
 function tagStyle(color: string): React.CSSProperties {
   return { backgroundColor: `${color}1a`, color, borderColor: `${color}40` };
@@ -82,17 +98,41 @@ function tagStyle(color: string): React.CSSProperties {
 
 const LeadCardView = forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { lead: LeadCard }
->(function LeadCardView({ lead, ...props }, ref) {
+  React.HTMLAttributes<HTMLDivElement> & { lead: LeadCard; stageAlertDays: number }
+>(function LeadCardView({ lead, stageAlertDays, ...props }, ref) {
   return (
     <div
       ref={ref}
       {...props}
       className="flex cursor-pointer flex-col gap-2.5 rounded-md border bg-background p-3 text-sm shadow-sm transition-shadow hover:border-primary/50 hover:shadow-md"
     >
-      <p className="font-medium leading-tight">{lead.title}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-medium leading-tight">{lead.title}</p>
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+            TEMPERATURE_BADGE[lead.temperature].className,
+          )}
+        >
+          {TEMPERATURE_BADGE[lead.temperature].label}
+        </span>
+      </div>
       {lead.contact && (
         <p className="text-xs text-muted-foreground">{lead.contact.name}</p>
+      )}
+      {lead.vehicleInterest && (
+        <p className="text-xs font-medium text-foreground/80">🚗 {lead.vehicleInterest}</p>
+      )}
+      {lead.origin && (
+        <p className="text-xs text-muted-foreground">
+          {lead.origin}
+          {lead.campaign ? ` · ${lead.campaign}` : ""}
+        </p>
+      )}
+      {lead.teamName && (
+        <Badge variant="outline" className="w-fit border-[#27272a]/20 bg-[#27272a]/5 text-[#27272a]">
+          {lead.teamName}
+        </Badge>
       )}
 
       {lead.tags.length > 0 && (
@@ -117,9 +157,31 @@ const LeadCardView = forwardRef<
           </Avatar>
         )}
       </div>
+
+      {lead.status === "open" && (
+        <StageDwellIndicator stageEnteredAt={lead.stageEnteredAt} stageAlertDays={stageAlertDays} />
+      )}
     </div>
   );
 });
+
+function StageDwellIndicator({
+  stageEnteredAt,
+  stageAlertDays,
+}: {
+  stageEnteredAt: string;
+  stageAlertDays: number;
+}) {
+  const days = daysInStage(stageEnteredAt);
+  const stuck = days >= stageAlertDays;
+
+  return (
+    <p className={cn("text-[11px]", stuck ? "font-medium text-destructive" : "text-muted-foreground")}>
+      {stuck && "⚠ "}
+      {days === 0 ? "Entrou hoje nesta etapa" : `${days}d nesta etapa`}
+    </p>
+  );
+}
 
 function SortableLeadCard({
   lead,
@@ -127,12 +189,16 @@ function SortableLeadCard({
   contacts,
   tags,
   members,
+  teams,
+  stageAlertDays,
 }: {
   lead: LeadCard;
   stages: Stage[];
   contacts: Contact[];
   tags: Tag[];
   members: Member[];
+  teams: Team[];
+  stageAlertDays: number;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: lead.id,
@@ -151,8 +217,9 @@ function SortableLeadCard({
         contacts={contacts}
         tags={tags}
         members={members}
+        teams={teams}
         lead={lead}
-        trigger={<LeadCardView lead={lead} />}
+        trigger={<LeadCardView lead={lead} stageAlertDays={stageAlertDays} />}
       />
     </div>
   );
@@ -165,6 +232,8 @@ function Column({
   contacts,
   tags,
   members,
+  teams,
+  stageAlertDays,
 }: {
   stage: Stage;
   leads: LeadCard[];
@@ -172,8 +241,11 @@ function Column({
   contacts: Contact[];
   tags: Tag[];
   members: Member[];
+  teams: Team[];
+  stageAlertDays: number;
 }) {
   const { setNodeRef } = useDroppable({ id: stage.id });
+  const leadIds = useMemo(() => leads.map((l) => l.id), [leads]);
   const totalCents = leads.reduce((sum, l) => sum + (l.valueCents ?? 0), 0);
   const dotColor = stage.is_won
     ? "bg-primary"
@@ -198,6 +270,7 @@ function Column({
           contacts={contacts}
           tags={tags}
           members={members}
+          teams={teams}
           defaultStageId={stage.id}
           trigger={
             <Button variant="ghost" size="icon" className="size-7">
@@ -206,7 +279,7 @@ function Column({
           }
         />
       </div>
-      <SortableContext items={leads.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="flex min-h-[80px] flex-1 flex-col gap-2">
           {leads.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
@@ -222,6 +295,8 @@ function Column({
                 contacts={contacts}
                 tags={tags}
                 members={members}
+                teams={teams}
+                stageAlertDays={stageAlertDays}
               />
             ))
           )}
@@ -238,8 +313,10 @@ export function KanbanBoard({
   contacts,
   tags,
   members,
+  teams,
   vocabulary,
   canManageSettings,
+  stageAlertDays,
 }: {
   pipelineId: string;
   stages: Stage[];
@@ -247,8 +324,10 @@ export function KanbanBoard({
   contacts: Contact[];
   tags: Tag[];
   members: Member[];
+  teams: Team[];
   vocabulary: Vocabulary;
   canManageSettings: boolean;
+  stageAlertDays: number;
 }) {
   const [columns, setColumns] = useState<Columns>(() => groupByStage(stages, initialLeads));
   const [activeLead, setActiveLead] = useState<LeadCard | null>(null);
@@ -354,6 +433,7 @@ export function KanbanBoard({
       </div>
 
       <DndContext
+        id="funil-kanban"
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
@@ -370,10 +450,14 @@ export function KanbanBoard({
               contacts={contacts}
               tags={tags}
               members={members}
+              teams={teams}
+              stageAlertDays={stageAlertDays}
             />
           ))}
         </div>
-        <DragOverlay>{activeLead ? <LeadCardView lead={activeLead} /> : null}</DragOverlay>
+        <DragOverlay>
+          {activeLead ? <LeadCardView lead={activeLead} stageAlertDays={stageAlertDays} /> : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );

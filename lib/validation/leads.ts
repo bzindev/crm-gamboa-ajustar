@@ -2,6 +2,15 @@ import { z } from "zod";
 
 const uuid = z.string().uuid();
 const optionalUuid = z.union([uuid, z.literal("")]).optional();
+const temperature = z.enum(["cold", "warm", "hot"]);
+
+const commercialFields = {
+  vehicleInterest: z.string().trim().max(160).optional(),
+  temperature: temperature.optional(),
+  origin: z.string().trim().max(80).optional(),
+  campaign: z.string().trim().max(80).optional(),
+  teamId: optionalUuid,
+};
 
 export const createLeadSchema = z
   .object({
@@ -13,6 +22,7 @@ export const createLeadSchema = z
     newContactName: z.string().trim().optional(),
     newContactPhone: z.string().trim().optional(),
     tagIds: z.array(uuid).optional(),
+    ...commercialFields,
   })
   .refine(
     (data) => Boolean(data.contactId) || Boolean(data.newContactName && data.newContactPhone),
@@ -32,6 +42,7 @@ export const updateLeadSchema = z
     tagIds: z.array(uuid).optional(),
     status: z.enum(["open", "won", "lost"]).optional(),
     lostReason: z.string().trim().max(300).optional(),
+    ...commercialFields,
   })
   .refine((data) => data.status !== "lost" || Boolean(data.lostReason), {
     message: "Conte rapidamente o motivo da perda — ajuda a entender o funil depois.",
@@ -43,3 +54,9 @@ export const moveLeadSchema = z.object({
   stageId: uuid,
   position: z.coerce.number(),
 });
+
+export const TEMPERATURE_LABELS: Record<z.infer<typeof temperature>, string> = {
+  cold: "Frio",
+  warm: "Morno",
+  hot: "Quente",
+};

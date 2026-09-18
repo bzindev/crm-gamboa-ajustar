@@ -32,24 +32,28 @@ export default async function ContatoPerfilPage({
   const { contactId } = await params;
   const supabase = await createClient();
 
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("id, name, phone_e164, opted_in, opted_out_at, created_at")
-    .eq("id", contactId)
-    .eq("org_id", membership.orgId)
-    .single();
+  // As duas consultas não dependem uma da outra (leads é filtrado pelo
+  // contactId da URL, não por algo que só a consulta do contato revela) —
+  // rodar em paralelo em vez de esperar uma terminar pra começar a outra.
+  const [{ data: contact }, { data: leadsData }] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select("id, name, phone_e164, opted_in, opted_out_at, created_at")
+      .eq("id", contactId)
+      .eq("org_id", membership.orgId)
+      .single(),
+    supabase
+      .from("leads")
+      .select(
+        "id, title, value_cents, status, created_at, pipeline_stages(name), lead_tags(tags(id, name, color))",
+      )
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false }),
+  ]);
 
   if (!contact) {
     notFound();
   }
-
-  const { data: leadsData } = await supabase
-    .from("leads")
-    .select(
-      "id, title, value_cents, status, created_at, pipeline_stages(name), lead_tags(tags(id, name, color))",
-    )
-    .eq("contact_id", contact.id)
-    .order("created_at", { ascending: false });
 
   const leads = (leadsData ?? []).map((lead) => {
     const stage = Array.isArray(lead.pipeline_stages) ? lead.pipeline_stages[0] : lead.pipeline_stages;
