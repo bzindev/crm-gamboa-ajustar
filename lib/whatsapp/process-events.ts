@@ -165,10 +165,41 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
   });
 
   // 23505 = já processado antes (reprocessamento após queda do worker) —
-  // idempotente, não é erro.
-  if (messageError && messageError.code !== "23505") {
-    throw new Error(messageError.message);
+  // idempotente, não é erro. Nesse caso não notifica de novo.
+  if (messageError) {
+    if (messageError.code !== "23505") throw new Error(messageError.message);
+    return;
   }
+
+  await notifyAgentsOfInboundMessage(supabase, orgId, conversationId!, existingContact?.name ?? contactName, text);
+}
+
+async function notifyAgentsOfInboundMessage(
+  supabase: AdminClient,
+  orgId: string,
+  conversationId: string,
+  contactName: string | null,
+  text: string | null,
+) {
+  const { data: members } = await supabase
+    .from("org_members")
+    .select("user_id")
+    .eq("org_id", orgId)
+    .not("accepted_at", "is", null);
+
+  if (!members || members.length === 0) return;
+
+  const title = contactName ? `Nova mensagem de ${contactName}` : "Nova mensagem no WhatsApp";
+  await supabase.from("notifications").insert(
+    members.map((member) => ({
+      org_id: orgId,
+      user_id: member.user_id,
+      type: "whatsapp.message_received",
+      title,
+      body: text,
+      link: `/inbox/${conversationId}`,
+    })),
+  );
 }
 
 async function processStatusUpdate(supabase: AdminClient, orgId: string, payload: Record<string, unknown>) {

@@ -1,5 +1,102 @@
 # PROGRESSO
 
+## 2026-09-22 (continuação) — Tema escuro completo (preto + amarelo + branco)
+
+Pedido explícito do usuário para virar o fundo inteiro do CRM (antes só a
+sidebar era escura). `app/globals.css`: reescrito o bloco `:root` inteiro
+— fundo `#0a0a0a`, cards `#18181b`, texto `#fafafa`, `--accent` virou
+âmbar escuro com texto amarelo vivo (antes era pastel claro com texto
+marrom). `--primary` (amarelo `#facc15`) e os tokens da sidebar não
+mudaram — já estavam certos. Login/cadastro/onboarding herdam o tema de
+graça, já que usam `bg-background`/`Card` em vez de cor fixa.
+
+Como a maior parte do app já usa classes de token (`bg-card`,
+`text-foreground` etc.), a troca dos tokens bastou para a maioria das
+telas. O que tinha cor **fixa em hexadecimal** (calculada pensando em
+fundo claro) precisou de ajuste manual, porque senão ficaria invisível
+em cima do novo fundo escuro:
+- Avatares (`bg-[#18181b] text-white`) em Contatos, Equipe, Dashboard,
+  Chat WhatsApp → viraram `bg-primary text-primary-foreground` (círculo
+  amarelo).
+- `components/app-shell/topbar.tsx` tinha `bg-white` fixo → `bg-card`.
+- Badge de setor no card do funil (`border-[#27272a]/20` etc., cinza-escuro
+  sobre cinza-escuro) → branco translúcido (`border-white/15 bg-white/5`).
+- Ícone "escuro" alternado do KPI do dashboard e o card de atalho
+  "Contatos" → viraram brancos (senão ficavam da cor do próprio card).
+- Banner de boas-vindas do dashboard ganhou `ring-1 ring-white/10` e o
+  gradiente passou a terminar em âmbar escuro em vez de cinza, pra não
+  se misturar com o fundo novo.
+
+**Pendente:** trocar a logo da sidebar por uma nova versão que o usuário
+enviou (fundo transparente/branco, mesmo logotipo Renault Gamboa) — só
+falta o caminho do arquivo salvo em disco para eu aplicar.
+
+## 2026-09-22 — Configurações unificada em uma seção com abas
+
+Antes: "Equipe", "Conexões" e "Configurações" eram 3 itens soltos na
+sidebar, cada um com seu próprio título de página. Unificado em uma seção
+só, padrão comum de SaaS:
+- `app/(app)/configuracoes/layout.tsx` (novo): título "Configurações" +
+  `<SettingsTabs>` compartilhados por Geral/Equipe/Conexões — as 3 rotas
+  continuam existindo do jeito que estavam (nada mudou de URL nem de
+  Server Action), só ganharam um layout em comum por cima.
+- `app/(app)/configuracoes/settings-tabs.tsx` (novo): abas com estado
+  ativo via `usePathname`, mesmo padrão já usado na sidebar.
+- Sidebar: os 3 itens viraram 1 ("Configurações", aponta para
+  `/configuracoes/geral`) — `activePrefix` novo no `NavItem` faz esse item
+  continuar destacado em `/configuracoes/equipe` e `/configuracoes/whatsapp`
+  também, não só na aba padrão.
+- Cada página perdeu o `<h1>` próprio (agora redundante com o da seção) e
+  ficou só com uma linha de descrição curta.
+
+## 2026-09-21 — Notificações, audit_log completo e Realtime no chat
+
+**Notificações (sino do topo, agora funcional):** migration `0012` cria a
+tabela `notifications` (RLS: cada um só lê a própria caixa; insert é aberto
+a qualquer membro da mesma org, porque notificar um colega é sempre uma
+escrita para OUTRO usuário). `lib/notifications/create.ts` é o helper
+fire-and-forget (mesmo padrão de `lib/audit/log.ts`). Dispara em dois
+lugares:
+- `lib/actions/leads.ts`: lead atribuído a alguém (`createLead`/`updateLead`)
+  notifica o novo responsável, exceto quando a pessoa se atribui o próprio
+  lead.
+- `lib/whatsapp/process-events.ts`: toda mensagem nova recebida no
+  WhatsApp notifica todos os membros aceitos da organização (`link` aponta
+  pra conversa em `/inbox/:id`).
+`components/app-shell/topbar.tsx` ganhou o dropdown de verdade (contador de
+não lidas, marcar uma ou todas como lidas). Sem realtime nesse sino de
+propósito — atualiza ao navegar entre páginas, que já é suficiente pro que
+foi pedido; se um dia precisar instantâneo, dá pra reusar a mesma inscrição
+Realtime do chat.
+
+**`audit_log` — cobertura que faltava, fechada:** `contact.created`,
+`contact.updated`, `tag.created`, `tag.deleted`, `pipeline.vocabulary_updated`,
+`pipeline.stage_created`, `pipeline.stage_renamed`, `pipeline.stage_deleted`,
+`invite.created`, `invite.accepted`. Junto com o que já existia
+(lead/setor/organização), agora toda mutação relevante do app grava linha —
+fecha a dívida da regra 4 do `CLAUDE.md` que estava em aberto desde a Fase 4.
+
+**Realtime no Chat WhatsApp:** migration `0012` também entra `messages` e
+`conversations` na publicação `supabase_realtime` (sem isso, INSERT/UPDATE
+nessas tabelas não chega em client nenhum, mesmo com Realtime "ligado" no
+projeto). `app/(app)/inbox/realtime-listener.tsx` é um Client Component sem
+UI, montado no layout do Inbox: abre uma inscrição via
+`lib/supabase/client.ts` filtrada por `org_id` e, em qualquer mudança em
+`messages`/`conversations`, chama `router.refresh()`. Decisão: em vez de
+reconciliar mensagem-por-mensagem no estado do cliente (arriscado sob
+reconexão/perda de evento), deixa o Next.js re-buscar os Server Components
+da rota atual — lista de conversas e thread aberta atualizam sozinhas,
+sem duplicar lógica de merge no cliente. Cobre tanto mensagem nova quanto
+atualização de status de entrega (sent → delivered → read).
+
+**Pendente:**
+- Rodar a migration `0012` no Supabase (SQL Editor) — sem ela, a tabela
+  `notifications` não existe (o sino quebra) e Realtime não entrega nada
+  em `messages`/`conversations` (chat não atualiza sozinho).
+- Ainda não testado com tráfego real de WhatsApp (mesma pendência de
+  sempre: falta conectar o número).
+- Busca do header continua só visual — não foi pedida ainda.
+
 ## 2026-09-18 (continuação 2) — Configurações, Relatórios, Automações e Inbox do WhatsApp
 
 **Configurações (`/configuracoes/geral`):** formulário simples para renomear

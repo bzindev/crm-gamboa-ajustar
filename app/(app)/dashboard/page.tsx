@@ -63,7 +63,7 @@ function KpiCard({
           <div
             className={cn(
               "flex size-10 items-center justify-center rounded-full",
-              variant === "dark" ? "bg-[#18181b] text-white" : "bg-primary text-primary-foreground",
+              variant === "dark" ? "bg-white text-[#18181b]" : "bg-primary text-primary-foreground",
             )}
           >
             <Icon className="size-5" />
@@ -96,8 +96,8 @@ function KpiCard({
 
 const QUICK_ACTIONS = [
   { href: "/funil", label: "Ver Funil", sub: "Kanban de vendas", icon: KanbanSquare, className: "bg-primary text-primary-foreground" },
-  { href: "/contatos", label: "Contatos", sub: "Base de clientes", icon: Users, className: "bg-[#18181b] text-white" },
-  { href: "/relatorios", label: "Relatórios", sub: "Exportar dados", icon: BarChart3, className: "bg-[#27272a] text-white" },
+  { href: "/contatos", label: "Contatos", sub: "Base de clientes", icon: Users, className: "bg-white text-[#18181b]" },
+  { href: "/relatorios", label: "Relatórios", sub: "Exportar dados", icon: BarChart3, className: "bg-zinc-700 text-white" },
   { href: "/automacoes", label: "Automações", sub: "Configurar alertas", icon: Zap, className: "bg-[#ca8a04] text-white" },
 ];
 
@@ -230,7 +230,7 @@ export default async function DashboardPage({
   return (
     <div className="flex flex-col gap-6">
       {/* Banner de boas-vindas */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d0d0d] to-[#27272a] p-6 text-white sm:p-8">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d0d0d] to-[#3f2d0a] p-6 text-white ring-1 ring-white/10 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">Bem-vindo de volta 👋</h1>
@@ -400,7 +400,7 @@ export default async function DashboardPage({
             {ownerBreakdown.map((owner) => (
               <div key={owner.name} className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm">
                 <Avatar className="size-8 shrink-0">
-                  <AvatarFallback className="bg-[#18181b] text-xs font-semibold text-white">
+                  <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                     {getInitials(owner.name)}
                   </AvatarFallback>
                 </Avatar>

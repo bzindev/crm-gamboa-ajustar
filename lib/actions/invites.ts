@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole, ForbiddenError } from "@/lib/auth/require-role";
 import { setActiveOrgCookie } from "@/lib/auth/active-org-cookie";
+import { getUser } from "@/lib/auth/session";
+import { logAudit } from "@/lib/audit/log";
 import {
   createInviteSchema,
   acceptInviteSchema,
@@ -39,18 +41,31 @@ export async function createInvite(
   const token = crypto.randomBytes(24).toString("hex");
   const supabase = await createClient();
 
-  const { error } = await supabase.from("org_invites").insert({
-    org_id: membership.orgId,
-    email: parsed.data.email.toLowerCase(),
-    role: parsed.data.role,
-    token,
-    invited_by: membership.userId,
-  });
+  const { data: invite, error } = await supabase
+    .from("org_invites")
+    .insert({
+      org_id: membership.orgId,
+      email: parsed.data.email.toLowerCase(),
+      role: parsed.data.role,
+      token,
+      invited_by: membership.userId,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
-    console.error("[invites] createInvite falhou:", error.code, error.message);
+  if (error || !invite) {
+    console.error("[invites] createInvite falhou:", error?.code, error?.message);
     return { error: "Não foi possível criar o convite." };
   }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "invite.created",
+    resourceType: "org_invites",
+    resourceId: invite.id,
+    after: { email: parsed.data.email.toLowerCase(), role: parsed.data.role },
+  });
 
   revalidatePath("/configuracoes/equipe");
 
@@ -95,6 +110,16 @@ export async function acceptInvite(
   if (error || !data) {
     console.error("[invites] acceptInvite falhou:", error?.code, error?.message);
     return { error: mapAcceptInviteError(error?.message ?? "") };
+  }
+
+  const user = await getUser();
+  if (user) {
+    await logAudit(supabase, {
+      orgId: data.result_org_id,
+      actorId: user.id,
+      action: "invite.accepted",
+      resourceType: "org_invites",
+    });
   }
 
   await setActiveOrgCookie(data.result_org_id);

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 import { ConversationList, type ConversationSummary } from "./conversation-list";
+import { RealtimeListener } from "./realtime-listener";
 
 export default async function InboxLayout({ children }: { children: React.ReactNode }) {
   const membership = await getActiveOrgMembership();
@@ -74,6 +75,7 @@ export default async function InboxLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex h-full gap-4">
+      <RealtimeListener orgId={membership.orgId} />
       <ConversationList conversations={items} />
       <div className="flex-1 overflow-hidden rounded-lg border bg-background">{children}</div>
     </div>

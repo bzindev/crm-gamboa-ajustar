@@ -85,7 +85,7 @@ export default async function ContatosPage({
               <TableCell>
                 <Link href={`/contatos/${contact.id}`} className="flex items-center gap-2.5 font-medium hover:underline">
                   <Avatar className="size-7 shrink-0">
-                    <AvatarFallback className="bg-[#18181b] text-[10px] font-semibold text-white">
+                    <AvatarFallback className="bg-primary text-[10px] font-semibold text-primary-foreground">
                       {getInitials(contact.name)}
                     </AvatarFallback>
                   </Avatar>

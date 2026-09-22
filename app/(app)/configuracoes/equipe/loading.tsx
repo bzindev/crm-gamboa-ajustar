@@ -4,10 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 export default function EquipeLoading() {
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <Skeleton className="h-8 w-24" />
-        <Skeleton className="mt-2 h-4 w-56" />
-      </div>
+      <Skeleton className="h-4 w-56" />
       {Array.from({ length: 2 }).map((_, i) => (
         <Card key={i}>
           <CardHeader>

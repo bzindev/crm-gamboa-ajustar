@@ -130,7 +130,7 @@ const LeadCardView = forwardRef<
         </p>
       )}
       {lead.teamName && (
-        <Badge variant="outline" className="w-fit border-[#27272a]/20 bg-[#27272a]/5 text-[#27272a]">
+        <Badge variant="outline" className="w-fit border-white/15 bg-white/5 text-zinc-200">
           {lead.teamName}
         </Badge>
       )}

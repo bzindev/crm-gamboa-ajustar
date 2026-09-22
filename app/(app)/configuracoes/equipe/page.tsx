@@ -71,12 +71,9 @@ export default async function EquipePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold">Equipe</h1>
-        <p className="text-muted-foreground">
-          Membros, convites e setores de {membership.orgName}.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Membros, convites e setores de {membership.orgName}.
+      </p>
 
       <Card>
         <CardHeader>
@@ -105,7 +102,7 @@ export default async function EquipePage() {
                 className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm"
               >
                 <Avatar className="size-8 shrink-0">
-                  <AvatarFallback className="bg-[#18181b] text-xs font-semibold text-white">
+                  <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
                     {getInitials(name)}
                   </AvatarFallback>
                 </Avatar>

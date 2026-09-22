@@ -28,12 +28,9 @@ export default async function WhatsAppSettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold">WhatsApp</h1>
-        <p className="text-muted-foreground">
-          Conecte o número oficial (Meta Cloud API) de {membership.orgName}.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Conecte o número oficial (Meta Cloud API) de {membership.orgName}.
+      </p>
 
       <Card>
         <CardHeader>

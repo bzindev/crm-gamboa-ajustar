@@ -6,6 +6,7 @@ import { getActiveOrgMembership } from "@/lib/auth/session";
 import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { calculateNewPosition } from "@/lib/crm/position";
 import { logAudit } from "@/lib/audit/log";
+import { createNotification } from "@/lib/notifications/create";
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -128,6 +129,19 @@ export async function createLead(
     after: { title: parsed.data.title, stage_id: parsed.data.stageId },
   });
 
+  // Notifica quem foi atribuído — exceto quando a pessoa se atribui o
+  // próprio lead, aí não tem por que avisar quem já sabe.
+  if (parsed.data.ownerId && parsed.data.ownerId !== membership.userId) {
+    await createNotification(supabase, {
+      orgId: membership.orgId,
+      userId: parsed.data.ownerId,
+      type: "lead.assigned",
+      title: "Lead atribuído a você",
+      body: parsed.data.title,
+      link: "/funil",
+    });
+  }
+
   revalidatePath("/funil");
   return { success: true };
 }
@@ -164,7 +178,7 @@ export async function updateLead(
 
   const { data: current } = await supabase
     .from("leads")
-    .select("stage_id, position, status, title")
+    .select("stage_id, position, status, title, owner_id")
     .eq("id", parsed.data.id)
     .single();
 
@@ -223,6 +237,18 @@ export async function updateLead(
     before: { stage_id: current.stage_id, status: current.status },
     after: { stage_id: parsed.data.stageId, status: parsed.data.status ?? "open" },
   });
+
+  const newOwnerId = parsed.data.ownerId || null;
+  if (newOwnerId && newOwnerId !== current.owner_id && newOwnerId !== membership.userId) {
+    await createNotification(supabase, {
+      orgId: membership.orgId,
+      userId: newOwnerId,
+      type: "lead.assigned",
+      title: "Lead atribuído a você",
+      body: parsed.data.title,
+      link: "/funil",
+    });
+  }
 
   revalidatePath("/funil");
   return { success: true };

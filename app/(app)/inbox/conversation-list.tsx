@@ -97,7 +97,7 @@ export function ConversationList({ conversations }: { conversations: Conversatio
                 )}
               >
                 <Avatar className="size-8 shrink-0">
-                  <AvatarFallback className="bg-[#18181b] text-[10px] font-semibold text-white">
+                  <AvatarFallback className="bg-primary text-[10px] font-semibold text-primary-foreground">
                     {getInitials(conversation.contactName)}
                   </AvatarFallback>
                 </Avatar>

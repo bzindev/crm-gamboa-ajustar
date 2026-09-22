@@ -61,7 +61,7 @@ export default async function ConversationPage({
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2.5">
           <Avatar className="size-9">
-            <AvatarFallback className="bg-[#18181b] text-xs font-semibold text-white">
+            <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
               {getInitials(contact?.name ?? contact?.phone_e164 ?? "?")}
             </AvatarFallback>
           </Avatar>

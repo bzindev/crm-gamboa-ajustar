@@ -8,12 +8,10 @@ import {
   Inbox as InboxIcon,
   KanbanSquare,
   Users,
-  UserCog,
   LogOut,
   BarChart3,
   Zap,
   Settings,
-  Smartphone,
 } from "lucide-react";
 import { OrgSwitcher } from "./org-switcher";
 import { signOut } from "@/lib/actions/auth";
@@ -32,6 +30,11 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   minRole?: Role;
   comingSoon?: boolean;
+  /** Prefixo alternativo para destacar o item ativo — usado quando o link
+   * aponta para a primeira aba de uma seção com várias sub-rotas (ex.:
+   * "Configurações" aponta para /configuracoes/geral mas também deve
+   * ficar ativo em /configuracoes/equipe). */
+  activePrefix?: string;
 };
 
 // Lista plana, sem cabeçalho de grupo — mesmo padrão do DeskcommCRM (só com
@@ -44,9 +47,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/contatos", label: "Contatos", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
   { href: "/automacoes", label: "Automações", icon: Zap, minRole: "admin" },
-  { href: "/configuracoes/equipe", label: "Equipe", icon: UserCog, minRole: "admin" },
-  { href: "/configuracoes/whatsapp", label: "Conexões", icon: Smartphone, minRole: "admin" },
-  { href: "/configuracoes/geral", label: "Configurações", icon: Settings, minRole: "admin" },
+  {
+    href: "/configuracoes/geral",
+    label: "Configurações",
+    icon: Settings,
+    minRole: "admin",
+    activePrefix: "/configuracoes",
+  },
 ];
 
 export function Sidebar({
@@ -72,6 +79,7 @@ export function Sidebar({
             alt="Renault Gamboa"
             fill
             priority
+            sizes="256px"
             className="object-cover"
           />
         </div>
@@ -83,7 +91,8 @@ export function Sidebar({
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
         {visibleItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const prefix = item.activePrefix ?? item.href;
+          const isActive = pathname === item.href || pathname.startsWith(`${prefix}/`);
 
           if (item.comingSoon) {
             return (
