@@ -8,6 +8,13 @@ import { contactSchema } from "@/lib/validation/contacts";
 
 export type ContactActionState = { error?: string; success?: true } | null;
 
+function mapContactDuplicateError(message: string | undefined): string {
+  if (message?.includes("uq_contacts_org_email")) {
+    return "Já existe um contato com esse e-mail.";
+  }
+  return "Já existe um contato com esse telefone.";
+}
+
 export async function createContact(
   _prevState: ContactActionState,
   formData: FormData,
@@ -20,6 +27,7 @@ export async function createContact(
   const parsed = contactSchema.safeParse({
     name: formData.get("name"),
     phone_e164: formData.get("phone_e164"),
+    email: formData.get("email") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -32,13 +40,14 @@ export async function createContact(
       org_id: membership.orgId,
       name: parsed.data.name,
       phone_e164: parsed.data.phone_e164,
+      email: parsed.data.email || null,
     })
     .select("id")
     .single();
 
   if (error || !contact) {
     if (error?.code === "23505") {
-      return { error: "Já existe um contato com esse telefone." };
+      return { error: mapContactDuplicateError(error.message) };
     }
     console.error("[contacts] createContact falhou:", error?.code, error?.message);
     return { error: "Não foi possível criar o contato." };
@@ -74,6 +83,7 @@ export async function updateContact(
   const parsed = contactSchema.safeParse({
     name: formData.get("name"),
     phone_e164: formData.get("phone_e164"),
+    email: formData.get("email") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
@@ -82,12 +92,16 @@ export async function updateContact(
   const supabase = await createClient();
   const { error } = await supabase
     .from("contacts")
-    .update({ name: parsed.data.name, phone_e164: parsed.data.phone_e164 })
+    .update({
+      name: parsed.data.name,
+      phone_e164: parsed.data.phone_e164,
+      email: parsed.data.email || null,
+    })
     .eq("id", id);
 
   if (error) {
     if (error.code === "23505") {
-      return { error: "Já existe um contato com esse telefone." };
+      return { error: mapContactDuplicateError(error.message) };
     }
     console.error("[contacts] updateContact falhou:", error.code, error.message);
     return { error: "Não foi possível atualizar o contato." };

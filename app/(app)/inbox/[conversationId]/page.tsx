@@ -9,6 +9,7 @@ import { getInitials } from "@/lib/format/initials";
 import { MessageBubble, type MessageItem } from "../message-bubble";
 import { MessageForm } from "../message-form";
 import { StatusSelect } from "../status-select";
+import { ClaimButton } from "../claim-button";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -27,7 +28,9 @@ export default async function ConversationPage({
 
   const { data: conversation } = await supabase
     .from("conversations")
-    .select("id, status, last_inbound_at, contact_id, contacts(id, name, phone_e164, opted_in)")
+    .select(
+      "id, status, last_inbound_at, contact_id, assigned_to, contacts(id, name, phone_e164, opted_in), profiles(full_name)",
+    )
     .eq("id", conversationId)
     .eq("org_id", membership.orgId)
     .maybeSingle();
@@ -35,6 +38,7 @@ export default async function ConversationPage({
   if (!conversation) notFound();
 
   const contact = one(conversation.contacts);
+  const assignedProfile = one(conversation.profiles);
 
   const { data: messagesData } = await supabase
     .from("messages")
@@ -76,6 +80,18 @@ export default async function ConversationPage({
             <Link href={`/contatos/${contact.id}`} className="text-xs text-primary hover:underline">
               Ver contato
             </Link>
+          )}
+          {conversation.assigned_to === membership.userId ? (
+            <Badge variant="secondary">Atribuída a você</Badge>
+          ) : conversation.assigned_to ? (
+            <>
+              <span className="text-xs text-muted-foreground">
+                Com {assignedProfile?.full_name ?? "outro vendedor"}
+              </span>
+              {membership.role !== "agent" && <ClaimButton conversationId={conversation.id} />}
+            </>
+          ) : (
+            <ClaimButton conversationId={conversation.id} />
           )}
           <StatusSelect conversationId={conversation.id} status={conversation.status} />
         </div>

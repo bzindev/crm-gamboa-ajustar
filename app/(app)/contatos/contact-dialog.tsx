@@ -13,7 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-type Contact = { id: string; name: string; phone_e164: string };
+type Contact = { id: string; name: string; phone_e164: string; email?: string | null };
 
 export function ContactDialog({
   contact,
@@ -61,6 +61,16 @@ export function ContactDialog({
               placeholder="+5511999999999"
               defaultValue={contact?.phone_e164}
               required
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="email">E-mail (opcional)</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="cliente@email.com"
+              defaultValue={contact?.email ?? ""}
             />
           </div>
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}

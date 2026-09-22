@@ -7,6 +7,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/app-shell/sidebar";
 import { Topbar } from "@/components/app-shell/topbar";
+import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
+import { PresenceListener } from "@/components/presence/presence-listener";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const membership = await getActiveOrgMembership();
@@ -33,6 +35,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-1">
+      <PresenceHeartbeat />
+      <PresenceListener />
       <Sidebar membership={membership} orgs={orgs} userName={userName} />
       <div className="flex flex-1 flex-col overflow-hidden print:overflow-visible">
         <Topbar userName={userName} notifications={notifications ?? []} />

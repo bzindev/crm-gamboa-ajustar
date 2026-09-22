@@ -1,5 +1,7 @@
 import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
+import { tryAutoAssignFromRotation } from "@/lib/crm/rotation";
+import { logAudit } from "@/lib/audit/log";
 
 const MAX_ATTEMPTS = 5;
 const MESSAGE_TYPES = new Set([
@@ -131,9 +133,24 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
     .maybeSingle();
 
   let conversationId = existingConversation?.id as string | undefined;
+  let assignedTo: string | null = null;
   const nowIso = new Date().toISOString();
 
   if (!conversationId) {
+    // Cliente novo entrando em contato: passa pelo rodízio do primeiro
+    // setor com distribuição automática ligada (hoje só "Venda Veículos
+    // Novos"). Sem setor assim, ou sem ninguém online, fica sem dono —
+    // alguém pega manualmente pelo botão "assumir conversa".
+    const { data: autoTeam } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("auto_distribution", true)
+      .limit(1)
+      .maybeSingle();
+
+    assignedTo = autoTeam ? await tryAutoAssignFromRotation(supabase, autoTeam.id) : null;
+
     const { data: newConversation, error } = await supabase
       .from("conversations")
       .insert({
@@ -142,12 +159,32 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
         channel_id: channelId,
         status: "open",
         last_inbound_at: nowIso,
+        team_id: autoTeam?.id ?? null,
+        assigned_to: assignedTo,
       })
       .select("id")
       .single();
     if (error || !newConversation) throw new Error(error?.message ?? "Falha ao criar conversa.");
     conversationId = newConversation.id;
+
+    if (assignedTo) {
+      await logAudit(supabase, {
+        orgId,
+        actorId: null,
+        action: "conversation.auto_assigned",
+        resourceType: "conversations",
+        resourceId: conversationId,
+        after: { assigned_to: assignedTo, team_id: autoTeam?.id ?? null, via: "rodizio" },
+      });
+    }
   } else {
+    const { data: current } = await supabase
+      .from("conversations")
+      .select("assigned_to")
+      .eq("id", conversationId)
+      .maybeSingle();
+    assignedTo = current?.assigned_to ?? null;
+
     await supabase
       .from("conversations")
       .update({ last_inbound_at: nowIso, status: "open" })
@@ -171,10 +208,47 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
     return;
   }
 
-  await notifyAgentsOfInboundMessage(supabase, orgId, conversationId!, existingContact?.name ?? contactName, text);
+  const finalContactName = existingContact?.name ?? contactName;
+  if (assignedTo) {
+    // Conversa já tem dono (rodízio ou "assumir conversa" manual): só
+    // avisa quem é responsável, não o time inteiro.
+    await notifyOne(supabase, orgId, assignedTo, conversationId!, finalContactName, text);
+  } else {
+    await notifyAllAgents(supabase, orgId, conversationId!, finalContactName, text);
+  }
 }
 
-async function notifyAgentsOfInboundMessage(
+function inboundMessageNotification(
+  orgId: string,
+  userId: string,
+  conversationId: string,
+  contactName: string | null,
+  text: string | null,
+) {
+  return {
+    org_id: orgId,
+    user_id: userId,
+    type: "whatsapp.message_received",
+    title: contactName ? `Nova mensagem de ${contactName}` : "Nova mensagem no WhatsApp",
+    body: text,
+    link: `/inbox/${conversationId}`,
+  };
+}
+
+async function notifyOne(
+  supabase: AdminClient,
+  orgId: string,
+  userId: string,
+  conversationId: string,
+  contactName: string | null,
+  text: string | null,
+) {
+  await supabase
+    .from("notifications")
+    .insert(inboundMessageNotification(orgId, userId, conversationId, contactName, text));
+}
+
+async function notifyAllAgents(
   supabase: AdminClient,
   orgId: string,
   conversationId: string,
@@ -189,16 +263,10 @@ async function notifyAgentsOfInboundMessage(
 
   if (!members || members.length === 0) return;
 
-  const title = contactName ? `Nova mensagem de ${contactName}` : "Nova mensagem no WhatsApp";
   await supabase.from("notifications").insert(
-    members.map((member) => ({
-      org_id: orgId,
-      user_id: member.user_id,
-      type: "whatsapp.message_received",
-      title,
-      body: text,
-      link: `/inbox/${conversationId}`,
-    })),
+    members.map((member) =>
+      inboundMessageNotification(orgId, member.user_id, conversationId, contactName, text),
+    ),
   );
 }
 

@@ -8,6 +8,7 @@ import { sendTextMessage } from "@/lib/whatsapp/graph-client";
 import { mapGraphApiError } from "@/lib/whatsapp/errors";
 import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
 import { isWithin24hWindow } from "@/lib/whatsapp/window";
+import { logAudit } from "@/lib/audit/log";
 
 export type MessageActionState = { error?: string } | null;
 
@@ -15,6 +16,7 @@ type ConversationRow = {
   id: string;
   org_id: string;
   last_inbound_at: string | null;
+  assigned_to: string | null;
   contacts: { phone_e164: string } | { phone_e164: string }[] | null;
   channels:
     | { phone_number_id: string; status: string; access_token_encrypted: string | null }
@@ -49,7 +51,9 @@ export async function sendMessage(
 
   const { data: conversation } = await supabase
     .from("conversations")
-    .select("id, org_id, last_inbound_at, contacts(phone_e164), channels(phone_number_id, status, access_token_encrypted)")
+    .select(
+      "id, org_id, last_inbound_at, assigned_to, contacts(phone_e164), channels(phone_number_id, status, access_token_encrypted)",
+    )
     .eq("id", parsed.data.conversationId)
     .eq("org_id", membership.orgId)
     .maybeSingle<ConversationRow>();
@@ -66,6 +70,27 @@ export async function sendMessage(
   }
   if (!contact) {
     return { error: "Contato da conversa não encontrado." };
+  }
+
+  // Vendedor comum só fala em conversa livre (responder assume
+  // automaticamente, sem precisar clicar em "assumir" antes) ou já
+  // atribuída a ele mesmo. Gestor/admin responde em qualquer uma —
+  // supervisão não pode ficar travada por atribuição de outro vendedor.
+  const isManagerOrAbove = membership.role !== "agent";
+  if (!isManagerOrAbove && conversation.assigned_to && conversation.assigned_to !== membership.userId) {
+    return { error: "Essa conversa está com outro vendedor. Assuma antes de responder." };
+  }
+  if (!conversation.assigned_to) {
+    await supabase.from("conversations").update({ assigned_to: membership.userId }).eq("id", conversation.id);
+    await logAudit(supabase, {
+      orgId: membership.orgId,
+      actorId: membership.userId,
+      action: "conversation.claimed",
+      resourceType: "conversations",
+      resourceId: conversation.id,
+      before: { assigned_to: null },
+      after: { assigned_to: membership.userId, via: "reply" },
+    });
   }
 
   if (!isWithin24hWindow(conversation.last_inbound_at)) {

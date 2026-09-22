@@ -3,16 +3,21 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserPlus } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/format/initials";
 import { cn } from "@/lib/utils";
+import { ContactDialog } from "@/app/(app)/contatos/contact-dialog";
 
 export type ConversationSummary = {
   id: string;
   contactName: string;
   contactPhone: string;
   status: "open" | "pending" | "resolved" | "closed";
+  assignedToMe: boolean;
+  assignedToName: string | null;
   lastMessagePreview: string | null;
   lastActivityAt: string | null;
 };
@@ -49,8 +54,15 @@ export function ConversationList({ conversations }: { conversations: Conversatio
 
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border bg-background">
-      <div className="border-b px-4 py-3">
+      <div className="flex items-center justify-between border-b px-4 py-3">
         <h1 className="text-sm font-semibold">Conversas</h1>
+        <ContactDialog
+          trigger={
+            <Button type="button" variant="ghost" size="icon" className="size-7" title="Novo contato">
+              <UserPlus className="size-4" />
+            </Button>
+          }
+        />
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto border-b px-3 py-2">
@@ -110,6 +122,13 @@ export function ConversationList({ conversations }: { conversations: Conversatio
                   </div>
                   <p className="truncate text-xs text-muted-foreground">
                     {conversation.lastMessagePreview ?? conversation.contactPhone}
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+                    {conversation.assignedToMe
+                      ? "Com você"
+                      : conversation.assignedToName
+                        ? `Com ${conversation.assignedToName}`
+                        : "Sem responsável"}
                   </p>
                 </div>
               </Link>

@@ -36,7 +36,9 @@ export default async function InboxLayout({ children }: { children: React.ReactN
 
   const { data: conversations } = await supabase
     .from("conversations")
-    .select("id, status, last_inbound_at, last_outbound_at, contacts(name, phone_e164)")
+    .select(
+      "id, status, last_inbound_at, last_outbound_at, assigned_to, contacts(name, phone_e164), profiles(full_name)",
+    )
     .eq("org_id", membership.orgId)
     .order("last_inbound_at", { ascending: false, nullsFirst: false });
 
@@ -62,12 +64,15 @@ export default async function InboxLayout({ children }: { children: React.ReactN
 
   const items: ConversationSummary[] = (conversations ?? []).map((c) => {
     const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
+    const assignedProfile = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles;
     const lastMessage = lastMessageByConversation.get(c.id);
     return {
       id: c.id,
       contactName: contact?.name ?? contact?.phone_e164 ?? "Contato",
       contactPhone: contact?.phone_e164 ?? "",
       status: c.status,
+      assignedToMe: c.assigned_to === membership.userId,
+      assignedToName: c.assigned_to ? (assignedProfile?.full_name ?? "outro vendedor") : null,
       lastMessagePreview: lastMessage?.preview ?? null,
       lastActivityAt: lastMessage?.createdAt ?? c.last_inbound_at ?? c.last_outbound_at,
     };

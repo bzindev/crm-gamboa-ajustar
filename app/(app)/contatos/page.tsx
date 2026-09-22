@@ -32,7 +32,7 @@ export default async function ContatosPage({
 
   let contactsQuery = supabase
     .from("contacts")
-    .select("id, name, phone_e164, opted_in")
+    .select("id, name, phone_e164, email, opted_in")
     .eq("org_id", membership.orgId)
     .order("name", { ascending: true });
 

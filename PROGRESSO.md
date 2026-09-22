@@ -1,5 +1,75 @@
 # PROGRESSO
 
+## 2026-09-22 (continuação 2) — Fase 1 do plano de distribuição: presença, rodízio, assumir conversa
+
+Início de um plano maior (4 fases) pedido pelo usuário: status de vendedor,
+permissões, rodízio, distribuição automática, assumir conversa, novo
+contato, disparo em massa, monitor de gestor, funil separado do Kanban,
+agendamento, relatórios, import/export, realtime completo. Implementado
+nesta rodada (migration `0013` + `0014`):
+
+**Presença (online/ausente/offline):** `profiles.presence_status` +
+`last_active_at`. Cliente manda heartbeat a cada 60s
+(`components/presence/presence-heartbeat.tsx`) reportando 'online' ou
+'away' (10min sem interação do mouse/teclado); "offline" nunca é escrito
+pelo cliente — é sempre derivado no servidor (`fn_presence_status`,
+espelhada em `lib/presence/status.ts`) comparando `last_active_at` com
+agora (>3min parado = offline), porque fechar a aba não avisa ninguém.
+Pontinho de status ao vivo na tela de Equipe via Realtime em `profiles`
+(mesmo padrão do chat).
+
+**Rodízio de vendedores:** `fn_next_rotation_member(team_id)` — função
+seguindo o mesmo padrão de concorrência de `fn_claim_pending_events`
+(`for update` na linha do setor, pra duas distribuições simultâneas não
+escolherem a mesma pessoa). Só considera quem está online agora; nunca
+repete o último vendedor em sequência enquanto houver outra pessoa
+elegível. Só o setor "Venda Veículos Novos" começa com
+`teams.auto_distribution = true` (Peças e Pós-Vendas continuam manuais até
+o usuário decidir as regras deles) — `fn_create_organization` atualizada
+pra organizações novas já nascerem assim.
+
+Disparado automaticamente em dois pontos: lead novo criado sem
+responsável escolhido à mão (`lib/actions/leads.ts`), e conversa nova do
+WhatsApp (`lib/whatsapp/process-events.ts`, que também grava
+`conversations.team_id`). Sem ninguém online, fica sem dono — alguém
+assume manualmente depois.
+
+**Botão "assumir conversa"** (`lib/actions/conversations.ts`,
+`claimConversation`): vendedor comum só assume conversa livre ou já seria
+sua; gestor/admin pode tomar de qualquer um. Responder uma conversa sem
+dono também assume automaticamente (não precisa clicar "assumir" antes de
+digitar). Isso trouxe uma regra de permissão nova: vendedor não consegue
+mais responder conversa atribuída a outro colega (`lib/actions/messages.ts`)
+— gestor/admin não tem essa restrição, para não travar supervisão.
+
+**Novo contato dentro do Inbox:** o formulário já existia em `/contatos`;
+agora também abre direto da lista de conversas (ícone "+" ao lado de
+"Conversas").
+
+**Detecção de duplicidade por e-mail:** `contacts.email` (opcional, novo)
++ índice único parcial case-insensitive por organização — mesmo
+tratamento que telefone já tinha. Mensagem de erro diferencia qual dos
+dois duplicou.
+
+**Pendente / decisões que ainda dependem do usuário:**
+- Presença: sem toggle de UI pra ligar/desligar rodízio automático por
+  setor ainda — só via SQL direto (`teams.auto_distribution`). Se quiser
+  gerenciar isso pela tela de Equipe, é rápido de adicionar.
+- "Permissões" (item 2 do plano): a base de papéis (owner/admin/manager/
+  agent) já existia inteira antes desta rodada; o que mudou aqui foi só a
+  regra de propriedade de conversa. Não foi feita uma auditoria completa
+  tela-por-tela — se quiser essa revisão formal, é um próximo passo
+  separado.
+- Balanceamento por carga (em vez de round robin puro) — combinado que
+  fica para depois.
+- Regras de distribuição por origem/horário/campanha — ainda não
+  desenhadas (usuário confirmou que por enquanto é só rodízio).
+- Fase 2 em diante (disparo em massa + templates, monitor do gestor,
+  kanban do Inbox por status, funil separado, agendamento de visitas,
+  relatório de contatos, import/export CSV) ainda não começou.
+
+**Rodar no Supabase antes de testar:** migrations `0013` e `0014`.
+
 ## 2026-09-22 (continuação) — Tema escuro completo (preto + amarelo + branco)
 
 Pedido explícito do usuário para virar o fundo inteiro do CRM (antes só a

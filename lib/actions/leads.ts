@@ -7,6 +7,7 @@ import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { calculateNewPosition } from "@/lib/crm/position";
 import { logAudit } from "@/lib/audit/log";
 import { createNotification } from "@/lib/notifications/create";
+import { tryAutoAssignFromRotation } from "@/lib/crm/rotation";
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -84,6 +85,13 @@ export async function createLead(
   const pipelineId = await getDefaultPipelineId(supabase, membership.orgId);
   const position = await nextPositionInStage(supabase, parsed.data.stageId);
 
+  // Sem responsável escolhido à mão: se o setor participa do rodízio,
+  // distribui automaticamente em vez de deixar o lead sem dono.
+  let ownerId = parsed.data.ownerId || null;
+  if (!ownerId && parsed.data.teamId) {
+    ownerId = await tryAutoAssignFromRotation(supabase, parsed.data.teamId);
+  }
+
   const { data: lead, error } = await supabase
     .from("leads")
     .insert({
@@ -94,7 +102,7 @@ export async function createLead(
       title: parsed.data.title,
       value_cents:
         parsed.data.valueReais !== undefined ? Math.round(parsed.data.valueReais * 100) : null,
-      owner_id: parsed.data.ownerId || null,
+      owner_id: ownerId,
       position,
       vehicle_interest: parsed.data.vehicleInterest || null,
       temperature: parsed.data.temperature ?? "cold",
@@ -120,21 +128,22 @@ export async function createLead(
     );
   }
 
+  const autoAssigned = ownerId !== null && !parsed.data.ownerId;
   await logAudit(supabase, {
     orgId: membership.orgId,
     actorId: membership.userId,
     action: "lead.created",
     resourceType: "leads",
     resourceId: lead.id,
-    after: { title: parsed.data.title, stage_id: parsed.data.stageId },
+    after: { title: parsed.data.title, stage_id: parsed.data.stageId, owner_id: ownerId, auto_assigned: autoAssigned },
   });
 
-  // Notifica quem foi atribuído — exceto quando a pessoa se atribui o
-  // próprio lead, aí não tem por que avisar quem já sabe.
-  if (parsed.data.ownerId && parsed.data.ownerId !== membership.userId) {
+  // Notifica quem foi atribuído (à mão ou pelo rodízio) — exceto quando a
+  // pessoa se atribui o próprio lead, aí não tem por que avisar quem já sabe.
+  if (ownerId && ownerId !== membership.userId) {
     await createNotification(supabase, {
       orgId: membership.orgId,
-      userId: parsed.data.ownerId,
+      userId: ownerId,
       type: "lead.assigned",
       title: "Lead atribuído a você",
       body: parsed.data.title,

@@ -12,15 +12,23 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { PresenceDot } from "@/components/presence/presence-dot";
+import { resolvePresenceStatus, PRESENCE_LABELS } from "@/lib/presence/status";
 import { InviteForm } from "./invite-form";
 import { TeamsSection } from "./teams-section";
+
+type ProfileRow = {
+  full_name: string | null;
+  presence_status: string | null;
+  last_active_at: string | null;
+};
 
 type MemberRow = {
   id: string;
   user_id: string;
   role: Role;
   accepted_at: string | null;
-  profiles: { full_name: string | null } | { full_name: string | null }[] | null;
+  profiles: ProfileRow | ProfileRow[] | null;
 };
 
 type InviteRow = {
@@ -43,7 +51,7 @@ export default async function EquipePage() {
     await Promise.all([
       supabase
         .from("org_members")
-        .select("id, user_id, role, accepted_at, profiles(full_name)")
+        .select("id, user_id, role, accepted_at, profiles(full_name, presence_status, last_active_at)")
         .eq("org_id", membership.orgId)
         .not("accepted_at", "is", null)
         .order("accepted_at", { ascending: true }),
@@ -96,17 +104,26 @@ export default async function EquipePage() {
           {memberList.map((member) => {
             const profile = Array.isArray(member.profiles) ? member.profiles[0] : member.profiles;
             const name = profile?.full_name ?? "(sem nome)";
+            const status = resolvePresenceStatus(profile?.presence_status, profile?.last_active_at);
             return (
               <div
                 key={member.id}
                 className="flex items-center gap-3 rounded-xl border px-3 py-2 text-sm"
               >
-                <Avatar className="size-8 shrink-0">
-                  <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
-                    {getInitials(name)}
-                  </AvatarFallback>
-                </Avatar>
+                <div className="relative shrink-0">
+                  <Avatar className="size-8">
+                    <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
+                      {getInitials(name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <PresenceDot
+                    presenceStatus={profile?.presence_status}
+                    lastActiveAt={profile?.last_active_at}
+                    className="absolute -right-0.5 -bottom-0.5"
+                  />
+                </div>
                 <span className="flex-1">{name}</span>
+                <span className="text-xs text-muted-foreground">{PRESENCE_LABELS[status]}</span>
                 <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
               </div>
             );
