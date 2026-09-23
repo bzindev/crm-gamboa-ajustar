@@ -12,7 +12,6 @@ import {
   BarChart3,
   Zap,
   Settings,
-  Eye,
 } from "lucide-react";
 import { OrgSwitcher } from "./org-switcher";
 import { signOut } from "@/lib/actions/auth";
@@ -44,7 +43,6 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inbox", label: "Chat WhatsApp", icon: InboxIcon },
-  { href: "/monitor", label: "Monitor", icon: Eye, minRole: "manager" },
   { href: "/funil", label: "Funil", icon: KanbanSquare },
   { href: "/contatos", label: "Contatos", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },

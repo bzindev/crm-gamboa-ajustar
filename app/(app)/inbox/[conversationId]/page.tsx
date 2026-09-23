@@ -9,7 +9,6 @@ import { getInitials } from "@/lib/format/initials";
 import { MessageBubble, type MessageItem } from "../message-bubble";
 import { MessageForm } from "../message-form";
 import { StatusSelect } from "../status-select";
-import { ClaimButton } from "../claim-button";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -58,7 +57,13 @@ export default async function ConversationPage({
     };
   });
 
-  const canSend = isWithin24hWindow(conversation.last_inbound_at);
+  const isMine = conversation.assigned_to === membership.userId;
+  const readOnly = Boolean(conversation.assigned_to) && !isMine;
+  const outsideWindow = !isWithin24hWindow(conversation.last_inbound_at);
+  // Só quem realmente consegue assumir vê o botão no rodapé: qualquer um
+  // pode pegar uma conversa livre, mas tomar de outro vendedor é exclusivo
+  // de gestor/admin (mesma regra de lib/actions/conversations.ts).
+  const canClaim = !conversation.assigned_to || membership.role !== "agent";
 
   return (
     <div className="flex h-full flex-col">
@@ -81,17 +86,14 @@ export default async function ConversationPage({
               Ver contato
             </Link>
           )}
-          {conversation.assigned_to === membership.userId ? (
+          {isMine ? (
             <Badge variant="secondary">Atribuída a você</Badge>
           ) : conversation.assigned_to ? (
-            <>
-              <span className="text-xs text-muted-foreground">
-                Com {assignedProfile?.full_name ?? "outro vendedor"}
-              </span>
-              {membership.role !== "agent" && <ClaimButton conversationId={conversation.id} />}
-            </>
+            <span className="text-xs text-muted-foreground">
+              Com {assignedProfile?.full_name ?? "outro vendedor"}
+            </span>
           ) : (
-            <ClaimButton conversationId={conversation.id} />
+            <Badge variant="outline">Sem vendedor</Badge>
           )}
           <StatusSelect conversationId={conversation.id} status={conversation.status} />
         </div>
@@ -105,7 +107,12 @@ export default async function ConversationPage({
         )}
       </div>
 
-      <MessageForm conversationId={conversation.id} disabled={!canSend} />
+      <MessageForm
+        conversationId={conversation.id}
+        readOnly={readOnly}
+        canClaim={canClaim}
+        outsideWindow={outsideWindow}
+      />
     </div>
   );
 }

@@ -1,5 +1,45 @@
 # PROGRESSO
 
+## 2026-09-23 (continuação) — Correção de rumo: sem painel "Monitor" separado
+
+Usuário pediu ajuste na entrega anterior: não queria uma tela `/monitor`
+paralela ao chat — queria que o gestor usasse o **mesmo** Inbox do
+vendedor, estilo WhatsApp Web. Removido `/monitor` inteiro (rota, item da
+sidebar) porque, na prática, o `/inbox` já mostrava todas as conversas da
+organização pra qualquer papel — nunca foi restrito a "minhas conversas".
+O painel separado era redundante.
+
+**Regra de envio ficou uniforme, sem exceção de papel:** antes, gestor/admin
+podia responder qualquer conversa sem assumir ("passe livre"); usuário
+pediu pra tirar isso — confuso saber quem está de fato atendendo. Agora
+`lib/actions/messages.ts` exige que TODO MUNDO (vendedor ou gestor) esteja
+atribuído à conversa (ou ela esteja livre, aí responder já assume) antes
+de mandar mensagem. Gestor continua podendo *tomar* uma conversa de outro
+vendedor via "assumir" (`lib/actions/conversations.ts`, isso não mudou) —
+só não pode mais responder sem clicar nesse botão antes.
+
+**Modo leitura ficou visível na tela**, não só um erro depois de tentar
+enviar: `MessageForm` agora recebe `readOnly`/`canClaim`/`outsideWindow`
+em vez de um único `disabled` — quando a conversa é de outra pessoa, o
+rodapé mostra "modo leitura" com o botão "Assumir" ali mesmo (só aparece o
+botão pra quem realmente pode clicar: setor livre, ou gestor/admin tomando
+de volta).
+
+**Filtro por vendedor** na lista de conversas (`conversation-list.tsx`),
+junto com o filtro por status que já existia — pedido explícito do
+usuário, calculado a partir da própria lista carregada (sem query extra).
+
+**Ordenação da lista corrigida:** antes só reordenava por mensagem
+*recebida* (`last_inbound_at`); se a última coisa que aconteceu numa
+conversa foi o vendedor respondendo, ela ficava "presa" no lugar errado.
+Agora ordena pela mensagem mais recente em qualquer direção — como no
+WhatsApp de verdade.
+
+Realtime (lista + thread) já cobria tudo isso desde a Fase 1 —
+`RealtimeListener` não precisou de nenhuma mudança, só passou a ser
+importado também de onde for preciso no futuro em vez de viver só dentro
+do Monitor removido.
+
 ## 2026-09-23 — Fase 2: Monitor (painel do gestor em tempo real)
 
 Item 8 do plano de distribuição (item 7, disparo em massa, segue pendente

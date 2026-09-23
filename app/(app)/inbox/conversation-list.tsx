@@ -16,6 +16,7 @@ export type ConversationSummary = {
   contactName: string;
   contactPhone: string;
   status: "open" | "pending" | "resolved" | "closed";
+  assignedToId: string | null;
   assignedToMe: boolean;
   assignedToName: string | null;
   lastMessagePreview: string | null;
@@ -30,6 +31,7 @@ const STATUS_LABELS: Record<ConversationSummary["status"], string> = {
 };
 
 type TabKey = "all" | ConversationSummary["status"];
+const UNASSIGNED = "__unassigned__";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "all", label: "Todas" },
@@ -42,6 +44,7 @@ const TABS: { key: TabKey; label: string }[] = [
 export function ConversationList({ conversations }: { conversations: ConversationSummary[] }) {
   const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [vendorFilter, setVendorFilter] = useState<string>("all");
 
   const countByTab = useMemo(() => {
     const counts: Record<TabKey, number> = { all: conversations.length, open: 0, pending: 0, resolved: 0, closed: 0 };
@@ -49,8 +52,22 @@ export function ConversationList({ conversations }: { conversations: Conversatio
     return counts;
   }, [conversations]);
 
-  const filtered =
+  const vendorOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const c of conversations) {
+      if (c.assignedToId && c.assignedToName) seen.set(c.assignedToId, c.assignedToName);
+    }
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [conversations]);
+
+  const byStatus =
     activeTab === "all" ? conversations : conversations.filter((c) => c.status === activeTab);
+  const filtered =
+    vendorFilter === "all"
+      ? byStatus
+      : vendorFilter === UNASSIGNED
+        ? byStatus.filter((c) => !c.assignedToId)
+        : byStatus.filter((c) => c.assignedToId === vendorFilter);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border bg-background">
@@ -92,6 +109,24 @@ export function ConversationList({ conversations }: { conversations: Conversatio
           </button>
         ))}
       </div>
+
+      {vendorOptions.length > 0 && (
+        <div className="border-b px-3 py-2">
+          <select
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
+          >
+            <option value="all">Todos os vendedores</option>
+            <option value={UNASSIGNED}>Sem vendedor</option>
+            {vendorOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (

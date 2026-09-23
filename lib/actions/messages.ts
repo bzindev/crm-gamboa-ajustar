@@ -72,12 +72,12 @@ export async function sendMessage(
     return { error: "Contato da conversa não encontrado." };
   }
 
-  // Vendedor comum só fala em conversa livre (responder assume
-  // automaticamente, sem precisar clicar em "assumir" antes) ou já
-  // atribuída a ele mesmo. Gestor/admin responde em qualquer uma —
-  // supervisão não pode ficar travada por atribuição de outro vendedor.
-  const isManagerOrAbove = membership.role !== "agent";
-  if (!isManagerOrAbove && conversation.assigned_to && conversation.assigned_to !== membership.userId) {
+  // Regra vale para todo mundo, sem exceção de papel: só fala quem está
+  // atribuído à conversa (ou ninguém ainda, aí responder já assume). Gestor
+  // que quiser intervir numa conversa de outro vendedor precisa clicar
+  // "Assumir conversa" antes — de propósito, pra nunca ficar ambíguo quem
+  // está de fato atendendo o cliente.
+  if (conversation.assigned_to && conversation.assigned_to !== membership.userId) {
     return { error: "Essa conversa está com outro vendedor. Assuma antes de responder." };
   }
   if (!conversation.assigned_to) {

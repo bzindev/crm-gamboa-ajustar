@@ -5,13 +5,20 @@ import { sendMessage, type MessageActionState } from "@/lib/actions/messages";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
+import { ClaimButton } from "./claim-button";
 
 export function MessageForm({
   conversationId,
-  disabled,
+  readOnly,
+  canClaim,
+  outsideWindow,
 }: {
   conversationId: string;
-  disabled: boolean;
+  /** Conversa atribuída a outra pessoa — modo leitura até alguém assumir. */
+  readOnly: boolean;
+  /** Se quem está vendo tem permissão de clicar "Assumir" a partir daqui. */
+  canClaim: boolean;
+  outsideWindow: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, isPending] = useActionState<MessageActionState, FormData>(
@@ -23,7 +30,20 @@ export function MessageForm({
     null,
   );
 
-  if (disabled) {
+  if (readOnly) {
+    return (
+      <div className="flex items-center justify-between gap-3 border-t p-3">
+        <p className="text-xs text-muted-foreground">
+          {canClaim
+            ? "Você está vendo em modo leitura — assuma a conversa para responder."
+            : "Essa conversa é de outro vendedor — modo leitura."}
+        </p>
+        {canClaim && <ClaimButton conversationId={conversationId} />}
+      </div>
+    );
+  }
+
+  if (outsideWindow) {
     return (
       <div className="border-t p-3 text-center text-xs text-muted-foreground">
         Fora da janela de 24h — só é possível responder com um template aprovado (fora do escopo

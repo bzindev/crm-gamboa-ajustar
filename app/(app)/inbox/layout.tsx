@@ -35,31 +35,42 @@ export default async function InboxLayout({ children }: { children: React.ReactN
     );
   }
 
+  // Sem "order by" aqui de propósito — a ordem final depende de qual foi a
+  // mensagem mais recente em QUALQUER direção (cliente ou vendedor), que só
+  // dá pra saber depois de já ter cruzado com fetchLastMessageByConversation
+  // abaixo. Ordenar só por last_inbound_at (como antes) deixava a lista
+  // "presa" quando a última coisa que aconteceu foi o vendedor respondendo.
   const { data: conversations } = await supabase
     .from("conversations")
     .select(
       "id, status, last_inbound_at, last_outbound_at, assigned_to, contacts(name, phone_e164), profiles(full_name)",
     )
-    .eq("org_id", membership.orgId)
-    .order("last_inbound_at", { ascending: false, nullsFirst: false });
+    .eq("org_id", membership.orgId);
 
   const lastMessageByConversation = await fetchLastMessageByConversation(supabase, membership.orgId);
 
-  const items: ConversationSummary[] = (conversations ?? []).map((c) => {
-    const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
-    const assignedProfile = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles;
-    const lastMessage = lastMessageByConversation.get(c.id);
-    return {
-      id: c.id,
-      contactName: contact?.name ?? contact?.phone_e164 ?? "Contato",
-      contactPhone: contact?.phone_e164 ?? "",
-      status: c.status,
-      assignedToMe: c.assigned_to === membership.userId,
-      assignedToName: c.assigned_to ? (assignedProfile?.full_name ?? "outro vendedor") : null,
-      lastMessagePreview: lastMessage?.preview ?? null,
-      lastActivityAt: lastMessage?.createdAt ?? c.last_inbound_at ?? c.last_outbound_at,
-    };
-  });
+  const items: ConversationSummary[] = (conversations ?? [])
+    .map((c) => {
+      const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
+      const assignedProfile = Array.isArray(c.profiles) ? c.profiles[0] : c.profiles;
+      const lastMessage = lastMessageByConversation.get(c.id);
+      return {
+        id: c.id,
+        contactName: contact?.name ?? contact?.phone_e164 ?? "Contato",
+        contactPhone: contact?.phone_e164 ?? "",
+        status: c.status,
+        assignedToId: c.assigned_to,
+        assignedToMe: c.assigned_to === membership.userId,
+        assignedToName: c.assigned_to ? (assignedProfile?.full_name ?? "outro vendedor") : null,
+        lastMessagePreview: lastMessage?.preview ?? null,
+        lastActivityAt: lastMessage?.createdAt ?? c.last_inbound_at ?? c.last_outbound_at,
+      };
+    })
+    .sort((a, b) => {
+      const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+      const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
   return (
     <div className="flex h-full gap-4">
