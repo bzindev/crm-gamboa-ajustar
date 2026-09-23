@@ -2,6 +2,9 @@ import "server-only";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { tryAutoAssignFromRotation } from "@/lib/crm/rotation";
 import { logAudit } from "@/lib/audit/log";
+import { sendTemplateMessage } from "@/lib/whatsapp/graph-client";
+import { mapGraphApiError } from "@/lib/whatsapp/errors";
+import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
 
 const MAX_ATTEMPTS = 5;
 const MESSAGE_TYPES = new Set([
@@ -54,6 +57,8 @@ export async function processPendingEvents(supabase: AdminClient, limit = 20): P
         await processInboundMessage(supabase, event.org_id, event.payload);
       } else if (event.type === "whatsapp_status_update") {
         await processStatusUpdate(supabase, event.org_id, event.payload);
+      } else if (event.type === "whatsapp_bulk_message") {
+        await processBulkMessage(supabase, event.org_id, event.payload);
       }
       // Tipo desconhecido (ex.: lead_stage_changed, sem consumidor ainda):
       // marca como concluído sem processar — não é erro, só não tem worker
@@ -268,6 +273,157 @@ async function notifyAllAgents(
       inboundMessageNotification(orgId, member.user_id, conversationId, contactName, text),
     ),
   );
+}
+
+// Erros de envio (número inválido, template rejeitado etc.) costumam ser
+// permanentes — em vez de deixar o event_log tentar de novo até "morrer"
+// (5x, mesma falha sempre), marca o destinatário como falho de uma vez e
+// segue o lote. A campanha nunca trava por causa de um destinatário ruim.
+async function processBulkMessage(supabase: AdminClient, orgId: string, payload: Record<string, unknown>) {
+  const campaignId = String(payload.campaign_id ?? "");
+  const contactId = String(payload.contact_id ?? "");
+  if (!campaignId || !contactId) return;
+
+  const { data: recipient } = await supabase
+    .from("bulk_campaign_recipients")
+    .select("id, status")
+    .eq("campaign_id", campaignId)
+    .eq("contact_id", contactId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+
+  // Já processado antes (reprocessamento após queda do worker) — idempotente.
+  if (!recipient || recipient.status !== "pending") return;
+
+  try {
+    // org_id em todas as buscas abaixo: defesa em profundidade — o worker
+    // usa o client de service role (ignora RLS), então quem garante que
+    // tudo pertence à mesma organização é o código aqui, não o banco.
+    const { data: campaign } = await supabase
+      .from("bulk_campaigns")
+      .select("template_id")
+      .eq("id", campaignId)
+      .eq("org_id", orgId)
+      .single();
+    if (!campaign) throw new Error("Campanha não encontrada.");
+
+    const { data: template } = await supabase
+      .from("message_templates")
+      .select("name, language, variable_count, body_text")
+      .eq("id", campaign.template_id)
+      .eq("org_id", orgId)
+      .single();
+    if (!template) throw new Error("Template não encontrado.");
+
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("name, phone_e164")
+      .eq("id", contactId)
+      .eq("org_id", orgId)
+      .single();
+    if (!contact) throw new Error("Contato não encontrado.");
+
+    const { data: channel } = await supabase
+      .from("channels")
+      .select("id, phone_number_id, access_token_encrypted, status")
+      .eq("org_id", orgId)
+      .eq("status", "connected")
+      .maybeSingle();
+    if (!channel || !channel.access_token_encrypted) throw new Error("Canal do WhatsApp não conectado.");
+
+    const accessToken = decryptToken(pgByteaToBuffer(channel.access_token_encrypted));
+    const to = contact.phone_e164.replace(/^\+/, "");
+    const bodyParams = template.variable_count > 0 ? [contact.name ?? contact.phone_e164] : [];
+
+    const { wamid } = await sendTemplateMessage(
+      channel.phone_number_id,
+      accessToken,
+      to,
+      template.name,
+      template.language,
+      bodyParams,
+    );
+
+    // Mesma conversa que o chat normal usa — a resposta do cliente cai
+    // direto nela, com o disparo já no histórico.
+    const { data: existingConversation } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("contact_id", contactId)
+      .eq("channel_id", channel.id)
+      .maybeSingle();
+
+    let conversationId = existingConversation?.id as string | undefined;
+    if (!conversationId) {
+      const { data: newConversation, error } = await supabase
+        .from("conversations")
+        .insert({ org_id: orgId, contact_id: contactId, channel_id: channel.id, status: "open" })
+        .select("id")
+        .single();
+      if (error || !newConversation) throw new Error(error?.message ?? "Falha ao criar conversa.");
+      conversationId = newConversation.id;
+    }
+
+    const renderedBody =
+      bodyParams.length > 0 ? template.body_text.replace("{{1}}", bodyParams[0]) : template.body_text;
+
+    await supabase.from("messages").insert({
+      org_id: orgId,
+      conversation_id: conversationId,
+      wamid,
+      direction: "outbound",
+      type: "template",
+      content: { body: renderedBody, template_name: template.name },
+      status: "sent",
+    });
+
+    await supabase
+      .from("conversations")
+      .update({ last_outbound_at: new Date().toISOString() })
+      .eq("id", conversationId);
+
+    await supabase
+      .from("bulk_campaign_recipients")
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", recipient.id);
+  } catch (err) {
+    await supabase
+      .from("bulk_campaign_recipients")
+      .update({ status: "failed", error_message: mapGraphApiError(err) })
+      .eq("id", recipient.id);
+  }
+
+  await refreshCampaignCounters(supabase, campaignId);
+}
+
+async function refreshCampaignCounters(supabase: AdminClient, campaignId: string) {
+  const [{ count: sentCount }, { count: failedCount }, { count: pendingCount }] = await Promise.all([
+    supabase
+      .from("bulk_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId)
+      .eq("status", "sent"),
+    supabase
+      .from("bulk_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId)
+      .eq("status", "failed"),
+    supabase
+      .from("bulk_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId)
+      .eq("status", "pending"),
+  ]);
+
+  await supabase
+    .from("bulk_campaigns")
+    .update({
+      sent_count: sentCount ?? 0,
+      failed_count: failedCount ?? 0,
+      status: (pendingCount ?? 0) > 0 ? "sending" : "done",
+    })
+    .eq("id", campaignId);
 }
 
 async function processStatusUpdate(supabase: AdminClient, orgId: string, payload: Record<string, unknown>) {

@@ -12,6 +12,7 @@ import {
   BarChart3,
   Zap,
   Settings,
+  Megaphone,
 } from "lucide-react";
 import { OrgSwitcher } from "./org-switcher";
 import { signOut } from "@/lib/actions/auth";
@@ -46,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/funil", label: "Funil", icon: KanbanSquare },
   { href: "/contatos", label: "Contatos", icon: Users },
   { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
+  { href: "/disparos", label: "Disparo em massa", icon: Megaphone, minRole: "manager" },
   { href: "/automacoes", label: "Automações", icon: Zap, minRole: "admin" },
   {
     href: "/configuracoes/geral",

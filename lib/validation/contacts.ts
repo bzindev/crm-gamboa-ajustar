@@ -10,6 +10,7 @@ export const contactSchema = z.object({
     .trim()
     .regex(E164_REGEX, "Telefone precisa estar no formato internacional, ex.: +5511999999999."),
   email: z.union([z.email("E-mail inválido."), z.literal("")]).optional(),
+  optedIn: z.coerce.boolean().optional(),
 });
 
 export type ContactInput = z.infer<typeof contactSchema>;

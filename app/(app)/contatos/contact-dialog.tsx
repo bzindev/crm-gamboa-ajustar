@@ -13,7 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-type Contact = { id: string; name: string; phone_e164: string; email?: string | null };
+type Contact = { id: string; name: string; phone_e164: string; email?: string | null; opted_in?: boolean };
 
 export function ContactDialog({
   contact,
@@ -73,6 +73,10 @@ export function ContactDialog({
               defaultValue={contact?.email ?? ""}
             />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="optedIn" defaultChecked={contact?.opted_in} />
+            Aceita receber mensagens em massa (marketing)
+          </label>
           {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
           <Button type="submit" disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}

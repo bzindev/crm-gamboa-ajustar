@@ -1,5 +1,62 @@
 # PROGRESSO
 
+## 2026-09-23 (continuação 2) — Fase 2 fechada: disparo em massa + templates
+
+Último item da Fase 2. Usuário confirmou que ainda não tem template
+aprovado no Meta Business Manager, então entrou no escopo uma tela de
+gestão de templates, não só o disparo em si.
+
+**Migration `0015`**: `message_templates` (espelha nome/idioma/categoria/
+corpo/status do template no Meta), `bulk_campaigns` (nome, template usado,
+contadores de enviado/falhado) e `bulk_campaign_recipients` (status por
+contato — pending/sent/failed/skipped_no_consent).
+
+**`/disparos/templates`** (admin só — mesma sensibilidade de conectar
+canal, é vinculado ao WABA da organização): criar template chama
+`POST /{waba-id}/message_templates` na Graph API e grava o retorno; botão
+"atualizar status" consulta a aprovação (que acontece do lado da Meta, de
+minutos a dias, fora do nosso controle). v1 só suporta 0 ou 1 variável no
+corpo, sempre preenchida com o nome do contato — sem header/footer/botão
+dinâmico ainda.
+
+**`/disparos` e `/disparos/novo`** (manager+): lista de campanhas e
+formulário de criação — nome, template (só os já aprovados aparecem),
+lista de contatos com busca e "selecionar todos com opt-in". Cada
+destinatário vira uma linha em `bulk_campaign_recipients` e um evento
+`whatsapp_bulk_message` no `event_log` — o mesmo worker que já drena a
+fila do webhook (`lib/whatsapp/process-events.ts`) processa em lote,
+sem precisar de nenhuma infra de fila nova.
+
+**Consentimento é checado na hora de montar a campanha**, usando a tabela
+`consents` (LGPD) como pedido — contato sem consentimento ativo vira
+`skipped_no_consent` automaticamente, mesmo que selecionado no formulário.
+Como nada nunca escrevia em `consents` antes (só existia o schema),
+`contacts.opted_in` virou de fato funcional: o checkbox no formulário de
+contato agora grava/revoga uma linha em `consents` por trás
+(`lib/crm/consent.ts`) — antes disso a campanha nunca teria ninguém
+elegível pra receber nada.
+
+Envio usa `sendTemplateMessage` (novo em `lib/whatsapp/graph-client.ts`) e
+cai na mesma `conversations`/`messages` do chat normal — cria a conversa
+se ainda não existir, então a resposta do cliente já cai num lugar
+conhecido. Erro de envio marca só aquele destinatário como falho
+(mensagem da Meta traduzida) em vez de derrubar o lote inteiro ou ficar
+retentando a mesma falha permanente 5 vezes.
+
+**Pendente:**
+- Ainda não testado com template de verdade aprovado (depende da Meta
+  aprovar um).
+- Sem paginação na lista de contatos do formulário de campanha — ok pro
+  volume atual, mas não escala pra milhares de contatos.
+- `sent_count`/`failed_count` em `bulk_campaigns` são recalculados por
+  `COUNT` a cada destinatário processado (não incrementados direto) —
+  evita corrida entre execuções do worker, mas significa uma query a mais
+  por destinatário.
+- Fase 2 está fechada. Fase 3 (kanban do Inbox por status de conversa —
+  combinado lá atrás, ainda não construído; relatório de contatos;
+  import/export CSV) e Fase 4 (realtime em Kanban/Funil, configurações
+  gerais ampliadas) seguem pendentes.
+
 ## 2026-09-23 (continuação) — Correção de rumo: sem painel "Monitor" separado
 
 Usuário pediu ajuste na entrega anterior: não queria uma tela `/monitor`
