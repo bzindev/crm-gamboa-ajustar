@@ -1,5 +1,53 @@
 # PROGRESSO
 
+## 2026-09-23 (continuação 3) — Fase 3 quase fechada: kanban do Inbox, relatório de contatos, import/export
+
+Item 10 (agendamento de visitas) segue fora de escopo por pedido do
+usuário ("esse app não mexe agora"). Os outros três itens da Fase 3:
+
+**Kanban do Inbox por status** (combinado antes de construir o Monitor,
+só agora implementado): `/inbox` ganhou um toggle Lista/Kanban
+(`inbox-shell.tsx`). Kanban mostra 4 colunas fixas (Aberta/Pendente/
+Resolvida/Fechada), arrastar um card entre colunas chama
+`updateConversationStatus` (a mesma Server Action que o seletor de status
+já usava). Mais simples que o Kanban do Funil — conversa não tem
+`position` pra ordenar dentro da coluna, só a coluna importa. Clicar num
+card leva pra `/inbox/:id` de sempre.
+
+**Relatório de contatos** (`/relatorios/contatos`, nova aba ao lado de
+"Geral"): diferente do relatório de leads (que é por período), aqui a
+tabela é a base inteira de contatos — período só afeta a métrica "novos no
+período". Cards de resumo: total, novos, com opt-in, sem nenhum lead.
+Extraído `lib/reports/csv.ts` (a função `csvEscape` com proteção contra
+CSV injection, que antes só existia dentro de `leads-report.ts`) pra não
+duplicar a mesma lógica de segurança em dois lugares.
+
+**Relatório geral ganhou "tempo médio de resposta"**: não existia coluna
+pronta pra isso — `lib/reports/response-time.ts` varre as mensagens do
+período em ordem e mede o tempo entre a mensagem do cliente e a primeira
+resposta do vendedor depois dela, por conversa, e tira a média.
+
+**Exportar/importar contatos** (`/contatos`): exportar já existia como
+padrão (CSV, mesmo `csvEscape`); importar é novo —
+`lib/actions/contacts-import.ts` lê um CSV (parser próprio em
+`lib/reports/csv-parse.ts`, sem biblioteca nova, mesmo raciocínio das
+exportações anteriores), casa colunas por nome de cabeçalho
+(nome/telefone/e-mail), atualiza quem já existe pelo telefone e cria quem
+não existe. **Decisão deliberada de LGPD:** importação nunca marca
+opt-in — mesmo que a planilha tenha uma coluna assim, consentimento de
+marketing não se herda de uma importação em massa, só de uma ação
+explícita por contato (`lib/crm/consent.ts`). Ação restrita a manager+
+(diferente de criar um contato avulso, que continua aberto a qualquer
+membro) — importação em massa erra em mais gente de uma vez se o arquivo
+estiver errado.
+
+**Pendente:**
+- Agendamento de visitas (item 10) — fora de escopo por enquanto.
+- Fase 4 (realtime em Kanban/Funil, configurações gerais ampliadas) ainda
+  não começou.
+- Import de contatos só aceita CSV, não .xlsx — mesma decisão de não
+  adicionar biblioteca nova já tomada pra exportação.
+
 ## 2026-09-23 (continuação 2) — Fase 2 fechada: disparo em massa + templates
 
 Último item da Fase 2. Usuário confirmou que ainda não tem template

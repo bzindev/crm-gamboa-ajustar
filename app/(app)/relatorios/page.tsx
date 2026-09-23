@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { getLeadsReport } from "@/lib/reports/leads-report";
+import { getAverageResponseMinutes, formatResponseMinutes } from "@/lib/reports/response-time";
 import { formatCents } from "@/lib/format/currency";
 import { TEMPERATURE_LABELS } from "@/lib/validation/leads";
 import {
@@ -57,21 +58,21 @@ export default async function RelatoriosPage({
   const to = params.to || fallback.to;
 
   const supabase = await createClient();
-  const { rows, summary } = await getLeadsReport(supabase, { orgId: membership.orgId, from, to });
+  const [{ rows, summary }, avgResponseMinutes] = await Promise.all([
+    getLeadsReport(supabase, { orgId: membership.orgId, from, to }),
+    getAverageResponseMinutes(supabase, membership.orgId, from, to),
+  ]);
 
   const exportHref = `/relatorios/export?from=${from}&to=${to}`;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Relatórios</h1>
-          <p className="text-muted-foreground">
-            Cartela de clientes que entraram em contato entre{" "}
-            {new Date(`${from}T00:00:00`).toLocaleDateString("pt-BR")} e{" "}
-            {new Date(`${to}T00:00:00`).toLocaleDateString("pt-BR")}.
-          </p>
-        </div>
+        <p className="text-muted-foreground">
+          Cartela de clientes que entraram em contato entre{" "}
+          {new Date(`${from}T00:00:00`).toLocaleDateString("pt-BR")} e{" "}
+          {new Date(`${to}T00:00:00`).toLocaleDateString("pt-BR")}.
+        </p>
         <div className="flex gap-2 print:hidden">
           <Button variant="outline" asChild>
             <a href={exportHref}>
@@ -85,7 +86,7 @@ export default async function RelatoriosPage({
 
       <PeriodForm from={from} to={to} />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Leads no período</CardDescription>
@@ -102,6 +103,12 @@ export default async function RelatoriosPage({
           <CardHeader className="pb-2">
             <CardDescription>Perdidos</CardDescription>
             <CardTitle className="text-2xl text-destructive">{summary.lost}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Tempo médio de resposta</CardDescription>
+            <CardTitle className="text-2xl">{formatResponseMinutes(avgResponseMinutes)}</CardTitle>
           </CardHeader>
         </Card>
         <Card>

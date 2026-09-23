@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
+import { ROLE_RANK } from "@/lib/auth/roles";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,9 @@ import {
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/format/initials";
+import { Download, Upload } from "lucide-react";
 import { ContactDialog } from "./contact-dialog";
+import { ImportDialog } from "./import-dialog";
 
 export default async function ContatosPage({
   searchParams,
@@ -50,6 +53,8 @@ export default async function ContatosPage({
     leadCountByContact.set(lead.contact_id, (leadCountByContact.get(lead.contact_id) ?? 0) + 1);
   }
 
+  const exportHref = "/contatos/export?from=2020-01-01&to=2099-12-31";
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -59,7 +64,25 @@ export default async function ContatosPage({
             Pessoas cadastradas em {membership.orgName}.
           </p>
         </div>
-        <ContactDialog trigger={<Button>Novo contato</Button>} />
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <a href={exportHref}>
+              <Download className="size-4" />
+              Exportar CSV
+            </a>
+          </Button>
+          {ROLE_RANK[membership.role] >= ROLE_RANK.manager && (
+            <ImportDialog
+              trigger={
+                <Button variant="outline">
+                  <Upload className="size-4" />
+                  Importar CSV
+                </Button>
+              }
+            />
+          )}
+          <ContactDialog trigger={<Button>Novo contato</Button>} />
+        </div>
       </div>
 
       <form method="get" className="flex max-w-sm items-center gap-2">

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { TEMPERATURE_LABELS } from "@/lib/validation/leads";
+import { csvEscape } from "@/lib/reports/csv";
 
 export type LeadsReportFilters = {
   orgId: string;
@@ -103,21 +104,6 @@ export async function getLeadsReport(
   };
 
   return { rows, summary };
-}
-
-// Campos como "Cliente" vêm do nome de perfil do WhatsApp de quem manda
-// mensagem — texto livre, controlado por quem está do outro lado da
-// conversa. Sem isso, um nome começando com "=", "+", "-" ou "@" vira
-// fórmula executada sozinha quando alguém abre o CSV no Excel/Sheets
-// (CSV injection).
-const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
-
-function csvEscape(value: string): string {
-  const safe = FORMULA_TRIGGER.test(value) ? `'${value}` : value;
-  if (/[",\n;]/.test(safe)) {
-    return `"${safe.replace(/"/g, '""')}"`;
-  }
-  return safe;
 }
 
 const STATUS_LABELS: Record<LeadsReportRow["status"], string> = {

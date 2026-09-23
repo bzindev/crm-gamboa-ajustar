@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
-import { ConversationList, type ConversationSummary } from "./conversation-list";
+import type { ConversationSummary } from "./conversation-list";
+import { InboxShell } from "./inbox-shell";
 import { RealtimeListener } from "./realtime-listener";
 import { fetchLastMessageByConversation } from "@/lib/inbox/last-messages";
 
@@ -73,10 +74,9 @@ export default async function InboxLayout({ children }: { children: React.ReactN
     });
 
   return (
-    <div className="flex h-full gap-4">
+    <div className="flex h-full flex-col">
       <RealtimeListener orgId={membership.orgId} />
-      <ConversationList conversations={items} />
-      <div className="flex-1 overflow-hidden rounded-lg border bg-background">{children}</div>
+      <InboxShell conversations={items}>{children}</InboxShell>
     </div>
   );
 }
