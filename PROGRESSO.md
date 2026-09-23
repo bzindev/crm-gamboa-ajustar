@@ -1,5 +1,32 @@
 # PROGRESSO
 
+## 2026-09-23 — Fase 2: Monitor (painel do gestor em tempo real)
+
+Item 8 do plano de distribuição (item 7, disparo em massa, segue pendente
+— depende de decidir a questão dos templates aprovados no Meta).
+
+`/monitor` (novo, sidebar item "Monitor", só manager/admin/owner via
+`requireRoleOrRedirect("manager")`): tabela com todas as conversas da
+organização — cliente, setor, vendedor responsável (com pontinho de
+presença ao vivo), última mensagem (indicando se foi o cliente ou o
+vendedor que mandou) e status, com abas de filtro (Todas/Sem
+vendedor/Aberta/Pendente/Resolvida/Fechada) e 3 cards de resumo (total,
+sem vendedor, abertas). Atualiza sozinho via o mesmo `RealtimeListener` já
+usado no Inbox (reaproveitado, não duplicado) — sem precisar recarregar.
+
+Clicar em "Abrir" leva pro `/inbox/:id` de sempre — a thread completa (com
+as duas direções da conversa) e a permissão de gestor responder qualquer
+uma já existiam desde a Fase 1, não precisou duplicar nada disso aqui.
+
+Extraído `lib/inbox/last-messages.ts` (helper `fetchLastMessageByConversation`)
+a partir do que já existia em `app/(app)/inbox/layout.tsx`, agora usado
+nos dois lugares — mesma lógica de "qual foi a última mensagem de cada
+conversa", sem duplicar.
+
+**Pendente:** disparo em massa + templates (Fase 2 restante); funil
+separado do Kanban, relatório de contatos, import/export CSV (Fase 3);
+realtime em Kanban/Funil e configurações gerais ampliadas (Fase 4).
+
 ## 2026-09-22 (continuação 2) — Fase 1 do plano de distribuição: presença, rodízio, assumir conversa
 
 Início de um plano maior (4 fases) pedido pelo usuário: status de vendedor,

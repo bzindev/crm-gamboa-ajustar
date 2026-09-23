@@ -5,6 +5,7 @@ import { getActiveOrgMembership } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 import { ConversationList, type ConversationSummary } from "./conversation-list";
 import { RealtimeListener } from "./realtime-listener";
+import { fetchLastMessageByConversation } from "@/lib/inbox/last-messages";
 
 export default async function InboxLayout({ children }: { children: React.ReactNode }) {
   const membership = await getActiveOrgMembership();
@@ -42,25 +43,7 @@ export default async function InboxLayout({ children }: { children: React.ReactN
     .eq("org_id", membership.orgId)
     .order("last_inbound_at", { ascending: false, nullsFirst: false });
 
-  // Recorte pragmático para a fase sem tráfego real ainda: uma vez que o
-  // número estiver em uso de verdade, isso vira paginação por conversa em
-  // vez de "últimas 200 mensagens de toda a organização".
-  const { data: recentMessages } = await supabase
-    .from("messages")
-    .select("conversation_id, content, type, created_at")
-    .eq("org_id", membership.orgId)
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  const lastMessageByConversation = new Map<string, { preview: string; createdAt: string }>();
-  for (const message of recentMessages ?? []) {
-    if (lastMessageByConversation.has(message.conversation_id)) continue;
-    const content = message.content as { body?: string } | null;
-    lastMessageByConversation.set(message.conversation_id, {
-      preview: content?.body ?? `[${message.type}]`,
-      createdAt: message.created_at,
-    });
-  }
+  const lastMessageByConversation = await fetchLastMessageByConversation(supabase, membership.orgId);
 
   const items: ConversationSummary[] = (conversations ?? []).map((c) => {
     const contact = Array.isArray(c.contacts) ? c.contacts[0] : c.contacts;
