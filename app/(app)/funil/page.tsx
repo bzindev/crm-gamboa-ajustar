@@ -4,6 +4,7 @@ import { getActiveOrgMembership, ROLE_RANK } from "@/lib/auth/session";
 import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { DEFAULT_VOCABULARY, type Vocabulary } from "@/lib/validation/pipelines";
 import { KanbanBoard, type LeadCard, type Stage } from "./kanban-board";
+import { RealtimeListener } from "./realtime-listener";
 
 export default async function FunilPage() {
   const membership = await getActiveOrgMembership();
@@ -103,17 +104,20 @@ export default async function FunilPage() {
   const canManageSettings = ROLE_RANK[membership.role] >= ROLE_RANK.admin;
 
   return (
-    <KanbanBoard
-      pipelineId={pipelineId}
-      stages={stagesTyped}
-      initialLeads={leads}
-      contacts={contacts ?? []}
-      tags={tags ?? []}
-      members={memberOptions}
-      teams={teams ?? []}
-      vocabulary={vocabulary}
-      canManageSettings={canManageSettings}
-      stageAlertDays={org?.stage_alert_days ?? 3}
-    />
+    <>
+      <RealtimeListener orgId={membership.orgId} />
+      <KanbanBoard
+        pipelineId={pipelineId}
+        stages={stagesTyped}
+        initialLeads={leads}
+        contacts={contacts ?? []}
+        tags={tags ?? []}
+        members={memberOptions}
+        teams={teams ?? []}
+        vocabulary={vocabulary}
+        canManageSettings={canManageSettings}
+        stageAlertDays={org?.stage_alert_days ?? 3}
+      />
+    </>
   );
 }

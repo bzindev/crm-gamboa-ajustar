@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -126,19 +126,34 @@ function Column({
   );
 }
 
+function groupByStatus(conversations: ConversationSummary[]): Record<Status, ConversationSummary[]> {
+  const grouped: Record<Status, ConversationSummary[]> = {
+    open: [],
+    pending: [],
+    resolved: [],
+    closed: [],
+  };
+  for (const c of conversations) grouped[c.status].push(c);
+  return grouped;
+}
+
 export function ConversationKanban({ conversations }: { conversations: ConversationSummary[] }) {
   const router = useRouter();
-  const [columns, setColumns] = useState<Record<Status, ConversationSummary[]>>(() => {
-    const grouped: Record<Status, ConversationSummary[]> = {
-      open: [],
-      pending: [],
-      resolved: [],
-      closed: [],
-    };
-    for (const c of conversations) grouped[c.status].push(c);
-    return grouped;
-  });
+  const [columns, setColumns] = useState<Record<Status, ConversationSummary[]>>(() =>
+    groupByStatus(conversations),
+  );
   const [activeCard, setActiveCard] = useState<ConversationSummary | null>(null);
+  const isDraggingRef = useRef(false);
+
+  // Sem isso, o board só refletia a própria movimentação (drag otimista) —
+  // conversa nova ou status mudado por outro vendedor só aparecia
+  // recarregando a página na mão. Ignora enquanto um drag está em
+  // andamento pra não competir com o estado otimista local.
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setColumns(groupByStatus(conversations));
+    }
+  }, [conversations]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -151,20 +166,30 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
   function handleDragStart(event: DragStartEvent) {
     const source = findColumn(String(event.active.id));
     if (!source) return;
+    isDraggingRef.current = true;
     setActiveCard(columns[source].find((c) => c.id === event.active.id) ?? null);
   }
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveCard(null);
-    if (!over) return;
+    if (!over) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const source = findColumn(String(active.id));
     const target = COLUMNS.some((c) => c.id === over.id) ? (over.id as Status) : findColumn(String(over.id));
-    if (!source || !target || source === target) return;
+    if (!source || !target || source === target) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const card = columns[source].find((c) => c.id === active.id);
-    if (!card) return;
+    if (!card) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     setColumns((prev) => ({
       ...prev,
@@ -184,6 +209,7 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
         [source]: [card, ...prev[source]],
       }));
     }
+    isDraggingRef.current = false;
   }
 
   const openConversation = useCallback((id: string) => router.push(`/inbox/${id}`), [router]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -332,6 +332,18 @@ export function KanbanBoard({
   const [columns, setColumns] = useState<Columns>(() => groupByStage(stages, initialLeads));
   const [activeLead, setActiveLead] = useState<LeadCard | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<Columns | null>(null);
+  const isDraggingRef = useRef(false);
+
+  // Sem isso, o board nunca refletia dado vindo de outra pessoa — o
+  // estado local só existia pra suportar o drag otimista, e depois do
+  // mount inicial nunca mais olhava pra initialLeads de novo. Ignora
+  // atualização enquanto um drag está em andamento pra não "puxar o
+  // tapete" do card que a própria pessoa está arrastando.
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setColumns(groupByStage(stages, initialLeads));
+    }
+  }, [stages, initialLeads]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -345,6 +357,7 @@ export function KanbanBoard({
   function handleDragStart(event: DragStartEvent) {
     const container = findContainer(String(event.active.id));
     if (!container) return;
+    isDraggingRef.current = true;
     setDragSnapshot(columns);
     setActiveLead(columns[container].find((l) => l.id === event.active.id) ?? null);
   }
@@ -382,10 +395,16 @@ export function KanbanBoard({
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveLead(null);
-    if (!over) return;
+    if (!over) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const container = findContainer(String(active.id));
-    if (!container) return;
+    if (!container) {
+      isDraggingRef.current = false;
+      return;
+    }
 
     const items = columns[container];
     const activeIndex = items.findIndex((l) => l.id === active.id);
@@ -417,6 +436,7 @@ export function KanbanBoard({
       toast.error(result.error);
       if (dragSnapshot) setColumns(dragSnapshot);
     }
+    isDraggingRef.current = false;
   }
 
   return (

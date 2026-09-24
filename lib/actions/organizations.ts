@@ -10,6 +10,7 @@ import {
   createOrganizationSchema,
   updateOrganizationSchema,
   updateStageAlertDaysSchema,
+  updateBusinessHoursSchema,
 } from "@/lib/validation/organizations";
 
 export type ActionState = { error?: string } | null;
@@ -126,5 +127,51 @@ export async function updateStageAlertDays(
   revalidatePath("/automacoes");
   revalidatePath("/dashboard");
   revalidatePath("/funil");
+  return null;
+}
+
+export async function updateBusinessHours(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsed = updateBusinessHoursSchema.safeParse({
+    weekday_open: formData.get("weekday_open"),
+    weekday_close: formData.get("weekday_close"),
+    saturday_enabled: formData.get("saturday_enabled") === "on",
+    saturday_open: formData.get("saturday_open"),
+    saturday_close: formData.get("saturday_close"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ business_hours: parsed.data })
+    .eq("id", membership.orgId);
+
+  if (error) {
+    console.error("[organizations] updateBusinessHours falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "organization.business_hours_updated",
+    resourceType: "organizations",
+    resourceId: membership.orgId,
+    after: parsed.data,
+  });
+
+  revalidatePath("/configuracoes/geral");
   return null;
 }

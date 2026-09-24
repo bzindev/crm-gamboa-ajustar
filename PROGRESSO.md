@@ -1,5 +1,52 @@
 # PROGRESSO
 
+## 2026-09-24 — Fase 4 fechada: realtime em Kanban/Funil + horário de expediente
+
+Último bloco do plano de 4 fases. Migration `0016` (realtime) + `0017`
+(horário de expediente).
+
+**Realtime no Funil e no Kanban do Inbox:** `app/(app)/funil/
+realtime-listener.tsx` (novo, mesmo padrão do Inbox) assina `leads` e
+`pipeline_stages`. Ao investigar isso, achei um bug real que já existia
+nos dois kanbans (Funil e o do Inbox construído na Fase 3): o estado local
+do board (`useState(() => groupByStage(...))`) só era montado uma vez e
+NUNCA mais sincronizava com dados novos vindos do servidor — funcionava
+por acidente porque cada drag já mexia no próprio estado local, mas
+mudança feita por outra pessoa nunca aparecia, com ou sem realtime.
+Corrigido nos dois (`kanban-board.tsx` e `conversation-kanban.tsx`) com um
+`useEffect` que resincroniza a partir das props, pausado por um `ref`
+enquanto um drag está em andamento (pra não competir com o estado
+otimista de quem está arrastando um card bem naquela hora).
+
+**Horário de expediente** (`/configuracoes/geral`, admin só):
+`organizations.business_hours` (segunda a sexta + sábado opcional,
+domingo sempre fechado). `lib/crm/business-hours.ts` calcula em
+America/Sao_Paulo fixo (não configurável ainda) — importante porque o
+servidor roda em UTC na Vercel, `new Date().getHours()` direto daria
+horário errado em produção.
+
+Usado de verdade, não só guardado: `tryAutoAssignFromRotation`
+(`lib/crm/rotation.ts`) agora também checa o horário antes de distribuir
+— lead ou conversa que chegar fora do expediente fica sem dono, igual já
+acontecia quando ninguém estava online, em vez de "acordar" um vendedor de
+madrugada. **Não constrói** a fila de redistribuição automática quando o
+expediente reabre (item que ficou registrado como pendente lá na Fase 1)
+— isso exigiria um cron novo revisitando leads/conversas sem dono
+periodicamente; fica pra quando for pedido.
+
+**Com isso, as 4 fases do plano de distribuição estão fechadas.**
+Pendências que ficaram registradas ao longo do caminho, nenhuma delas
+pedida de volta ainda:
+- Agendamento de visitas (Fase 3, item 10) — fora de escopo por pedido do
+  usuário.
+- Fila de redistribuição quando o expediente reabre (mencionado acima).
+- Balanceamento por carga no rodízio (só round robin puro por enquanto).
+- Regras de distribuição por origem/campanha (só por rodízio + horário).
+- Auditoria completa de permissões tela-por-tela (só a regra de dono de
+  conversa foi revisada, não uma varredura formal de todas as telas).
+- Toggle de UI para ligar rodízio automático nos outros setores (Peças,
+  Pós-Vendas) — hoje só via SQL direto.
+
 ## 2026-09-23 (continuação 3) — Fase 3 quase fechada: kanban do Inbox, relatório de contatos, import/export
 
 Item 10 (agendamento de visitas) segue fora de escopo por pedido do

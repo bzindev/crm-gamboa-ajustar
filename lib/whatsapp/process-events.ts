@@ -154,7 +154,7 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
       .limit(1)
       .maybeSingle();
 
-    assignedTo = autoTeam ? await tryAutoAssignFromRotation(supabase, autoTeam.id) : null;
+    assignedTo = autoTeam ? await tryAutoAssignFromRotation(supabase, orgId, autoTeam.id) : null;
 
     const { data: newConversation, error } = await supabase
       .from("conversations")

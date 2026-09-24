@@ -89,7 +89,7 @@ export async function createLead(
   // distribui automaticamente em vez de deixar o lead sem dono.
   let ownerId = parsed.data.ownerId || null;
   if (!ownerId && parsed.data.teamId) {
-    ownerId = await tryAutoAssignFromRotation(supabase, parsed.data.teamId);
+    ownerId = await tryAutoAssignFromRotation(supabase, membership.orgId, parsed.data.teamId);
   }
 
   const { data: lead, error } = await supabase

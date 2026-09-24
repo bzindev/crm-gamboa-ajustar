@@ -8,6 +8,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { GeneralForm } from "./general-form";
+import { BusinessHoursForm } from "./business-hours-form";
+import { DEFAULT_BUSINESS_HOURS, type BusinessHours } from "@/lib/crm/business-hours";
 
 export default async function ConfiguracoesGeralPage() {
   // Só admin/owner acessa — checado no servidor (lib/auth/require-role.ts),
@@ -17,9 +19,14 @@ export default async function ConfiguracoesGeralPage() {
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("name, slug, created_at")
+    .select("name, slug, created_at, business_hours")
     .eq("id", membership.orgId)
     .single();
+
+  const businessHours: BusinessHours = {
+    ...DEFAULT_BUSINESS_HOURS,
+    ...((org?.business_hours as Partial<BusinessHours>) ?? {}),
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -35,6 +42,16 @@ export default async function ConfiguracoesGeralPage() {
         </CardHeader>
         <CardContent>
           <GeneralForm orgName={org?.name ?? ""} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Horário de expediente</CardTitle>
+          <CardDescription>Usado pelo rodízio automático de vendedores.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BusinessHoursForm hours={businessHours} />
         </CardContent>
       </Card>
     </div>
