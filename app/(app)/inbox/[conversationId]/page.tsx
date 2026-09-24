@@ -9,6 +9,7 @@ import { getInitials } from "@/lib/format/initials";
 import { MessageBubble, type MessageItem } from "../message-bubble";
 import { MessageForm } from "../message-form";
 import { StatusSelect } from "../status-select";
+import { ActiveConversationTracker } from "../active-conversation-tracker";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -67,6 +68,7 @@ export default async function ConversationPage({
 
   return (
     <div className="flex h-full flex-col">
+      <ActiveConversationTracker conversationId={conversation.id} />
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2.5">
           <Avatar className="size-9">

@@ -31,3 +31,31 @@ export async function markAllNotificationsRead() {
 
   revalidatePath("/", "layout");
 }
+
+/**
+ * Conta conversas com mensagem do cliente ainda não vista pelo vendedor
+ * logado — usada no título da aba ("(3) CRM"), não no sino. Comparar
+ * last_read_at com last_inbound_at não dá pra empurrar pro filtro do
+ * supabase-js (é coluna com coluna, não coluna com valor), mas a lista de
+ * conversas de UM vendedor é sempre pequena, então filtrar aqui mesmo,
+ * depois de buscar, é suficiente — não precisa de função no banco.
+ */
+export async function getUnreadConversationCount(): Promise<number> {
+  const membership = await getActiveOrgMembership();
+  if (!membership) return 0;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("conversations")
+    .select("last_inbound_at, last_read_at")
+    .eq("org_id", membership.orgId)
+    .eq("assigned_to", membership.userId)
+    .neq("status", "closed")
+    .not("last_inbound_at", "is", null);
+
+  if (!data) return 0;
+
+  return data.filter(
+    (c) => !c.last_read_at || new Date(c.last_read_at) < new Date(c.last_inbound_at!),
+  ).length;
+}

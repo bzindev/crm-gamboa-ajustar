@@ -81,7 +81,10 @@ export async function sendMessage(
     return { error: "Essa conversa está com outro vendedor. Assuma antes de responder." };
   }
   if (!conversation.assigned_to) {
-    await supabase.from("conversations").update({ assigned_to: membership.userId }).eq("id", conversation.id);
+    await supabase
+      .from("conversations")
+      .update({ assigned_to: membership.userId, assigned_at: new Date().toISOString() })
+      .eq("id", conversation.id);
     await logAudit(supabase, {
       orgId: membership.orgId,
       actorId: membership.userId,

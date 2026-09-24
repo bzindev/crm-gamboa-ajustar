@@ -11,6 +11,8 @@ import {
   updateOrganizationSchema,
   updateStageAlertDaysSchema,
   updateBusinessHoursSchema,
+  updateSlaMinutesSchema,
+  updateReassignMinutesSchema,
 } from "@/lib/validation/organizations";
 
 export type ActionState = { error?: string } | null;
@@ -173,5 +175,89 @@ export async function updateBusinessHours(
   });
 
   revalidatePath("/configuracoes/geral");
+  return null;
+}
+
+export async function updateSlaMinutes(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsed = updateSlaMinutesSchema.safeParse({
+    slaMinutes: formData.get("slaMinutes"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ sla_minutes: parsed.data.slaMinutes })
+    .eq("id", membership.orgId);
+
+  if (error) {
+    console.error("[organizations] updateSlaMinutes falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "organization.sla_minutes_updated",
+    resourceType: "organizations",
+    resourceId: membership.orgId,
+    after: { sla_minutes: parsed.data.slaMinutes },
+  });
+
+  revalidatePath("/configuracoes/sla-rodizio");
+  return null;
+}
+
+export async function updateReassignMinutes(
+  _prevState: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsed = updateReassignMinutesSchema.safeParse({
+    reassignMinutes: formData.get("reassignMinutes"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ reassign_minutes: parsed.data.reassignMinutes })
+    .eq("id", membership.orgId);
+
+  if (error) {
+    console.error("[organizations] updateReassignMinutes falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "organization.reassign_minutes_updated",
+    resourceType: "organizations",
+    resourceId: membership.orgId,
+    after: { reassign_minutes: parsed.data.reassignMinutes },
+  });
+
+  revalidatePath("/configuracoes/sla-rodizio");
   return null;
 }

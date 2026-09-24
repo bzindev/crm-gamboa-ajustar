@@ -82,6 +82,25 @@ export async function createLead(
     contactId = contact.id;
   }
 
+  // Nome do contato + link direto pra conversa (se já existir uma com esse
+  // contato) — pedido pela notificação de "lead atribuído": tem que
+  // identificar quem é e abrir o atendimento direto, não só o board do funil.
+  const { data: contactRow } = await supabase
+    .from("contacts")
+    .select("name, phone_e164")
+    .eq("id", contactId)
+    .maybeSingle();
+  const contactLabel = contactRow?.name ?? contactRow?.phone_e164 ?? "Contato";
+
+  const { data: existingConversation } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("org_id", membership.orgId)
+    .eq("contact_id", contactId)
+    .limit(1)
+    .maybeSingle();
+  const notificationLink = existingConversation ? `/inbox/${existingConversation.id}` : "/funil";
+
   const pipelineId = await getDefaultPipelineId(supabase, membership.orgId);
   const position = await nextPositionInStage(supabase, parsed.data.stageId);
 
@@ -138,6 +157,8 @@ export async function createLead(
     after: { title: parsed.data.title, stage_id: parsed.data.stageId, owner_id: ownerId, auto_assigned: autoAssigned },
   });
 
+  const notificationBody = `${contactLabel}${parsed.data.origin ? ` · origem: ${parsed.data.origin}` : ""}`;
+
   // Notifica quem foi atribuído (à mão ou pelo rodízio) — exceto quando a
   // pessoa se atribui o próprio lead, aí não tem por que avisar quem já sabe.
   if (ownerId && ownerId !== membership.userId) {
@@ -146,13 +167,49 @@ export async function createLead(
       userId: ownerId,
       type: "lead.assigned",
       title: "Lead atribuído a você",
-      body: parsed.data.title,
-      link: "/funil",
+      body: notificationBody,
+      link: notificationLink,
     });
+  } else if (!ownerId) {
+    // Sem vendedor específico (contato manual, sem rodízio ou fora do
+    // horário de expediente) — avisa o setor Recepção em vez de ninguém.
+    await notifyReceptionTeam(supabase, membership.orgId, notificationBody, notificationLink);
   }
 
   revalidatePath("/funil");
   return { success: true };
+}
+
+async function notifyReceptionTeam(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orgId: string,
+  body: string,
+  link: string,
+) {
+  const { data: team } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("name", "Recepção")
+    .maybeSingle();
+  if (!team) return;
+
+  const { data: members } = await supabase
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", team.id);
+  if (!members || members.length === 0) return;
+
+  for (const member of members) {
+    await createNotification(supabase, {
+      orgId,
+      userId: member.user_id,
+      type: "lead.assigned",
+      title: "Novo lead sem vendedor definido",
+      body,
+      link,
+    });
+  }
 }
 
 export async function updateLead(
@@ -187,7 +244,7 @@ export async function updateLead(
 
   const { data: current } = await supabase
     .from("leads")
-    .select("stage_id, position, status, title, owner_id")
+    .select("stage_id, position, status, title, owner_id, contact_id")
     .eq("id", parsed.data.id)
     .single();
 
@@ -249,13 +306,26 @@ export async function updateLead(
 
   const newOwnerId = parsed.data.ownerId || null;
   if (newOwnerId && newOwnerId !== current.owner_id && newOwnerId !== membership.userId) {
+    const { data: contactRow } = await supabase
+      .from("contacts")
+      .select("name, phone_e164")
+      .eq("id", current.contact_id)
+      .maybeSingle();
+    const { data: existingConversation } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("org_id", membership.orgId)
+      .eq("contact_id", current.contact_id)
+      .limit(1)
+      .maybeSingle();
+
     await createNotification(supabase, {
       orgId: membership.orgId,
       userId: newOwnerId,
       type: "lead.assigned",
       title: "Lead atribuído a você",
-      body: parsed.data.title,
-      link: "/funil",
+      body: `${contactRow?.name ?? contactRow?.phone_e164 ?? "Contato"}${parsed.data.origin ? ` · origem: ${parsed.data.origin}` : ""}`,
+      link: existingConversation ? `/inbox/${existingConversation.id}` : "/funil",
     });
   }
 

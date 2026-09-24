@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole, ForbiddenError } from "@/lib/auth/require-role";
+import { getActiveOrgMembership } from "@/lib/auth/session";
 import { logAudit } from "@/lib/audit/log";
 import { updateConversationStatusSchema } from "@/lib/validation/conversations";
 
@@ -98,9 +99,10 @@ export async function claimConversation(
     return { error: "Essa conversa já está com outro vendedor." };
   }
 
+  const nowIso = new Date().toISOString();
   const { error } = await supabase
     .from("conversations")
-    .update({ assigned_to: membership.userId })
+    .update({ assigned_to: membership.userId, last_read_at: nowIso, assigned_at: nowIso })
     .eq("id", conversationId);
 
   if (error) {
@@ -121,4 +123,24 @@ export async function claimConversation(
   revalidatePath("/inbox");
   revalidatePath(`/inbox/${conversationId}`);
   return null;
+}
+
+/**
+ * Chamado ao abrir (ou voltar o foco para) uma conversa — base do contador
+ * de não lidas no título da aba. Só grava quando quem chama é o próprio
+ * responsável: um gestor abrindo a conversa de outro vendedor pra
+ * acompanhar (ver 2486ef6) não pode "zerar" a notificação de quem ainda não
+ * respondeu de fato.
+ */
+export async function markConversationRead(conversationId: string): Promise<void> {
+  const membership = await getActiveOrgMembership();
+  if (!membership) return;
+
+  const supabase = await createClient();
+  await supabase
+    .from("conversations")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("id", conversationId)
+    .eq("org_id", membership.orgId)
+    .eq("assigned_to", membership.userId);
 }

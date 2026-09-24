@@ -12,6 +12,14 @@ export const updateStageAlertDaysSchema = z.object({
   stageAlertDays: z.coerce.number().int().min(1, "Mínimo de 1 dia.").max(90, "Máximo de 90 dias."),
 });
 
+export const updateSlaMinutesSchema = z.object({
+  slaMinutes: z.coerce.number().int().min(1, "Mínimo de 1 minuto.").max(180, "Máximo de 180 minutos."),
+});
+
+export const updateReassignMinutesSchema = z.object({
+  reassignMinutes: z.coerce.number().int().min(1, "Mínimo de 1 minuto.").max(120, "Máximo de 120 minutos."),
+});
+
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 const timeField = z.string().regex(timeRegex, "Use o formato HH:MM.");
 

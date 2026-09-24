@@ -166,6 +166,7 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
         last_inbound_at: nowIso,
         team_id: autoTeam?.id ?? null,
         assigned_to: assignedTo,
+        assigned_at: assignedTo ? nowIso : null,
       })
       .select("id")
       .single();

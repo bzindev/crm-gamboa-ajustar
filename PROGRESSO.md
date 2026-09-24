@@ -1,5 +1,126 @@
 # PROGRESSO
 
+## 2026-09-24 (continuação 2) — Reatribuição automática por falta de 1ª resposta
+
+Migration `0019`. Regra nova no rodízio, diferente do alerta de SLA (0018):
+se o vendedor responsável não manda NENHUMA mensagem dentro de um prazo
+configurável (padrão 5 min) depois que a conversa passou a ser dele, ela é
+tirada dele de verdade e passa pro próximo vendedor disponível no rodízio —
+não é só um alerta, muda `conversations.assigned_to`. O ciclo se repete sem
+limite até alguém responder ou ninguém mais estar disponível (aí a conversa
+fica sem dono, igual já acontecia fora do horário de expediente).
+
+**Coluna nova**: `conversations.assigned_at` — quando a conversa passou a
+ter ESSE responsável (rodízio, "assumir conversa" ou responder uma conversa
+livre). Diferente de `last_inbound_at`/`last_outbound_at`, que só falam de
+troca de mensagem. Sem `assigned_at` (conversa nunca teve responsável
+individual — ex.: ainda com o setor Recepção inteiro, ninguém assumiu),
+não existe timer, exatamente como pedido. **Sem backfill** pras conversas já
+atribuídas antes desta migration — ficam de fora da regra até a próxima
+atribuição de verdade, pra não reatribuir em massa tudo que já estava em
+andamento no momento em que rodou.
+
+**`fn_response_breaches()`** (banco, SECURITY DEFINER, só `service_role`):
+só lê candidatos — diferente de `fn_sla_breaches` (0018), não precisa marcar
+"já notificado" porque a própria reatribuição (que reseta `assigned_at`)
+já impede o mesmo estouro no minuto seguinte. `lib/whatsapp/
+reassignment-check.ts` (worker, mesmo cron de 1 em 1 minuto de sempre) faz
+o UPDATE com guarda otimista (`where assigned_to/assigned_at antigos`) pra
+não reatribuir duas vezes se o cron sobrepuser, reaproveita
+`tryAutoAssignFromRotation` (mesma função da distribuição inicial — já
+filtra por presença online e horário de expediente) e usa o "rodízio geral"
+como fallback quando a conversa não tem setor com rodízio próprio (caso de
+algo herdado da Recepção).
+
+**Notificações**: vendedor novo recebe a mesma notificação de "lead
+atribuído" já existente; vendedor anterior recebe uma nova
+(`conversation.reassigned_away`) avisando que perdeu por falta de resposta.
+
+**Configurações**: nova aba **"SLA e Rodízio"** (`/configuracoes/
+sla-rodizio`), admin/owner só — mesmo padrão de redirect de `/configuracoes/
+geral` (o link da aba aparece pra todo mundo, mas a página redireciona
+quem não é admin; é o mesmo comportamento que "Geral" já tinha, não um
+padrão novo). O card de SLA que estava em "Geral" foi movido pra cá, ao
+lado do novo campo de reatribuição — ambos os prazos configuráveis, valendo
+a partir do próximo minuto do cron sem precisar reiniciar nada.
+
+**Decisão tomada sem confirmar com o usuário**: interpretei "lead" no
+pedido como sinônimo de "conversa atribuída a um vendedor" (não a entidade
+`leads` do funil/CRM) — a justificativa é que a regra fala em "assumir
+conversa", "setor Recepção" e "mensagem do vendedor conta como resposta",
+que são todos conceitos de `conversations`/`messages`, não existem
+equivalentes em `leads`. Se a intenção real era sobre o funil (cartão de
+lead, não a conversa de WhatsApp), isso precisa ser refeito.
+
+Aplicada e verificada no banco (colunas + função existem). Revisão de
+segurança rodada, sem achado de alta confiança (só uma nota de correção,
+não de segurança: numa sobreposição do cron, a execução que perde a corrida
+otimista ainda consome um "turno" do rodízio antes de descartar a escrita —
+não duplica reatribuição nem notificação, só pode fazer o próximo vendedor
+escolhido pular uma posição a mais que o normal numa janela rara).
+
+## 2026-09-24 (continuação) — Notificações push (Notification API) + contador de não lidas
+
+Migration `0018`. Cobre os 3 gatilhos pedidos, todos passando pela MESMA
+tabela `notifications` que já existia (0012) pro sino do topbar — só
+faltava ela entrar na publicação do Realtime (esquecido em 0012, só
+`messages`/`conversations` tinham entrado). Com isso, um único listener no
+cliente (`components/notifications/notifications-provider.tsx`, montado
+por `app/(app)/layout.tsx`) cobre lead atribuído, mensagem nova e SLA
+estourado sem precisar de uma assinatura por gatilho.
+
+**Lead atribuído** (`lib/actions/leads.ts`): notificação agora traz nome
+do contato + origem e abre a conversa direto (procura uma `conversations`
+já existente com aquele contato; sem uma, cai pro `/funil`, porque não tem
+o que abrir). Sem dono (contato manual, sem rodízio ou fora do horário),
+notifica o setor **"Recepção"** em vez de ninguém — setor novo, criado
+por esta migration (backfill nas orgs existentes + `fn_create_organization`
+pra orgs novas). **Decisão registrada, não confirmada com o usuário**: o
+setor não existia antes; se não for o nome/conceito certo, é só renomear
+ou mover gente nele pela tela de Setores — não tem nada hardcoded no
+código além do nome usado pra achar o time.
+
+**Mensagem nova**: já existia (`lib/whatsapp/process-events.ts`,
+`notifyOne`) — só passou a chegar em tempo real por causa do fix na
+publicação, nada mudou na lógica de quem é notificado.
+
+**SLA estourado**: `organizations.sla_minutes` (default 15, configurável
+em `/configuracoes/geral`, admin só). `fn_sla_breaches()` (função no
+banco, SECURITY DEFINER, só `service_role` — mesmo padrão de
+`fn_claim_pending_events`) acha conversas sem resposta há mais que o
+limite e já marca como notificada atomicamente (evita duplicar se o cron
+sobrepuser). Chamada pelo MESMO cron de 1 em 1 minuto que já drena o
+`event_log` (`/api/cron/process-events`) — não ganhou cron próprio pra não
+esbarrar em limite de quantidade de crons do Vercel. Notifica o vendedor
+responsável E todo `manager`/`admin`/`owner` da organização.
+
+**Contador de não lidas no título da aba** (`"(3) CRM"`): novas colunas
+`conversations.last_read_at`/`sla_notified_at`. Marcado como lido quando o
+vendedor responsável abre a conversa ou volta o foco pra aba
+(`active-conversation-tracker.tsx`) — só grava se quem chamou for
+`assigned_to`, então um gestor só acompanhando não zera a notificação de
+quem ainda não respondeu. Comparação `last_read_at < last_inbound_at` é
+coluna-com-coluna, não dá pra empurrar pro filtro do supabase-js — como a
+lista de conversas de UM vendedor é pequena, filtra em JS depois de buscar
+em vez de criar uma função no banco só pra isso.
+
+**Suprime notificação nativa redundante**: se a conversa do link já está
+aberta E a aba está em foco (`document.hasFocus()`), não dispara
+`Notification` — só teria efeito pra lead/SLA sem link de conversa
+específico, que sempre disparam.
+
+**Permissão do navegador**: pedida uma vez só (`localStorage`), no
+primeiro carregamento em que `Notification.permission === "default"` —
+nunca de novo, nem se a pessoa recusar (é permissão de navegador, por
+origem, não por conta — pedir nunca de novo depois de recusado não muda
+nada mesmo).
+
+**Pendente, fora do meu alcance de execução**: a migration `0018` ainda
+não rodou no banco — sem CLI logada no Supabase neste ambiente, precisa
+ser aplicada manualmente pelo SQL Editor do Supabase, igual às anteriores
+(0016/0017). Sem isso, nada deste bloco funciona (colunas/função/tabela
+na publicação não existem ainda).
+
 ## 2026-09-24 — Fase 4 fechada: realtime em Kanban/Funil + horário de expediente
 
 Último bloco do plano de 4 fases. Migration `0016` (realtime) + `0017`
