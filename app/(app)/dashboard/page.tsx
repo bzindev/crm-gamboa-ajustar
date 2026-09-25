@@ -11,13 +11,26 @@ import {
   AlertTriangle,
   BarChart3,
   Zap,
+  Trophy,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { formatCents } from "@/lib/format/currency";
 import { getInitials } from "@/lib/format/initials";
+import { buildVendorRanking } from "@/lib/reports/vendor-ranking";
+import { fetchMessagesForRanking } from "@/lib/reports/vendor-ranking-data";
+import { formatResponseMinutes } from "@/lib/reports/response-time";
 import { cn } from "@/lib/utils";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { DashboardRealtimeListener } from "./realtime-listener";
 import {
   Card,
   CardContent,
@@ -125,10 +138,11 @@ export default async function DashboardPage({
   const [
     { data: stages },
     { data: leads },
-    { data: contacts },
+    { count: contactsCount },
     { data: channels },
     { data: members },
     { data: org },
+    rankingMessages,
   ] = await Promise.all([
     supabase
       .from("pipeline_stages")
@@ -149,6 +163,11 @@ export default async function DashboardPage({
       .eq("org_id", membership.orgId)
       .not("accepted_at", "is", null),
     supabase.from("organizations").select("stage_alert_days").eq("id", membership.orgId).single(),
+    fetchMessagesForRanking(
+      supabase,
+      membership.orgId,
+      period === "month" ? startOfMonth.toISOString() : null,
+    ),
   ]);
 
   const allLeads = leads ?? [];
@@ -193,6 +212,13 @@ export default async function DashboardPage({
     }),
   );
 
+  const ranking = buildVendorRanking({
+    messages: rankingMessages,
+    leads: allLeads,
+    members: [...memberNameById.entries()].map(([userId, name]) => ({ userId, name })),
+    isInPeriod: inPeriod,
+  });
+
   const byOwner = new Map<string, { name: string; count: number; valueCents: number }>();
   for (const lead of openLeads) {
     const ownerId = lead.owner_id ?? "sem-responsavel";
@@ -229,6 +255,7 @@ export default async function DashboardPage({
 
   return (
     <div className="flex flex-col gap-6">
+      <DashboardRealtimeListener orgId={membership.orgId} />
       {/* Banner de boas-vindas */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d0d0d] to-[#3f2d0a] p-6 text-white ring-1 ring-white/10 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -341,7 +368,7 @@ export default async function DashboardPage({
             <Users className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-semibold">{contacts?.length ?? 0}</p>
+            <p className="text-2xl font-semibold">{contactsCount ?? 0}</p>
           </CardContent>
         </Card>
 
@@ -418,6 +445,78 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="size-4 text-primary" />
+              Ranking de vendedores
+            </CardTitle>
+            <Badge variant="outline">
+              Tempo médio de resposta da equipe: {formatResponseMinutes(ranking.teamAvgResponseMinutes)}
+            </Badge>
+          </div>
+          <CardDescription>
+            {period === "month" ? "Este mês" : "Todo o histórico"} — ordenado por vendas ganhas.
+            Conversas e mensagens contam só o que o próprio vendedor enviou.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {ranking.rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma atividade de vendedor no período.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">#</TableHead>
+                  <TableHead>Vendedor</TableHead>
+                  <TableHead className="text-right">Conversas</TableHead>
+                  <TableHead className="text-right">Mensagens</TableHead>
+                  <TableHead className="text-right">Resp. média</TableHead>
+                  <TableHead className="text-right">Ganhos</TableHead>
+                  <TableHead className="text-right">Conversão</TableHead>
+                  <TableHead className="text-right">Valor ganho</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ranking.rows.map((row, index) => (
+                  <TableRow key={row.userId}>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "flex size-6 items-center justify-center rounded-full text-xs font-semibold",
+                          index === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {index + 1}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="size-7">
+                          <AvatarFallback className="bg-primary text-[10px] font-semibold text-primary-foreground">
+                            {getInitials(row.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{row.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">{row.conversations}</TableCell>
+                    <TableCell className="text-right">{row.messagesSent}</TableCell>
+                    <TableCell className="text-right">{formatResponseMinutes(row.avgResponseMinutes)}</TableCell>
+                    <TableCell className="text-right">{row.won}</TableCell>
+                    <TableCell className="text-right">
+                      {row.conversionRate === null ? "—" : `${row.conversionRate}%`}
+                    </TableCell>
+                    <TableCell className="text-right">{formatCents(row.wonValueCents)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       {stuckLeads.length > 0 && (
         <Card className="border-primary/30 bg-accent/40">
