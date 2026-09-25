@@ -10,6 +10,7 @@ import { MessageBubble, type MessageItem } from "../message-bubble";
 import { MessageForm } from "../message-form";
 import { StatusSelect } from "../status-select";
 import { ActiveConversationTracker } from "../active-conversation-tracker";
+import { TransferDialog } from "../transfer-dialog";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -40,6 +41,16 @@ export default async function ConversationPage({
   const contact = one(conversation.contacts);
   const assignedProfile = one(conversation.profiles);
 
+  const { data: members } = await supabase
+    .from("org_members")
+    .select("user_id, profiles(full_name)")
+    .eq("org_id", membership.orgId)
+    .not("accepted_at", "is", null);
+
+  const transferTargets = (members ?? [])
+    .filter((m) => m.user_id !== conversation.assigned_to)
+    .map((m) => ({ id: m.user_id, name: one(m.profiles)?.full_name ?? "Sem nome" }));
+
   const { data: messagesData } = await supabase
     .from("messages")
     .select("id, direction, type, content, status, created_at")
@@ -65,6 +76,10 @@ export default async function ConversationPage({
   // pode pegar uma conversa livre, mas tomar de outro vendedor é exclusivo
   // de gestor/admin (mesma regra de lib/actions/conversations.ts).
   const canClaim = !conversation.assigned_to || membership.role !== "agent";
+  // Mesma régua de quem pode "tomar de volta": vendedor repassa a própria
+  // conversa, gestor/admin repassa qualquer uma — mas só faz sentido depois
+  // que já tem alguém atendendo (repassar algo livre não é transferência).
+  const canTransfer = Boolean(conversation.assigned_to) && (isMine || membership.role !== "agent");
 
   return (
     <div className="flex h-full flex-col">
@@ -96,6 +111,9 @@ export default async function ConversationPage({
             </span>
           ) : (
             <Badge variant="outline">Sem vendedor</Badge>
+          )}
+          {canTransfer && transferTargets.length > 0 && (
+            <TransferDialog conversationId={conversation.id} targets={transferTargets} />
           )}
           <StatusSelect conversationId={conversation.id} status={conversation.status} />
         </div>

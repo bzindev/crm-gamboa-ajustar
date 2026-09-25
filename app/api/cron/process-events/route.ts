@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { processPendingEvents } from "@/lib/whatsapp/process-events";
 import { checkSlaBreaches } from "@/lib/whatsapp/sla-check";
 import { checkResponseBreaches } from "@/lib/whatsapp/reassignment-check";
+import { checkStageAlerts } from "@/lib/crm/stage-alert-check";
 
 // Chamado pelo Vercel Cron (ou um cron manual em outro provedor) — nunca
 // pelo navegador. CRON_SECRET no header Authorization é o único controle de
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
   // agendamento próprio.
   const slaBreaches = await checkSlaBreaches(supabase);
   const reassigned = await checkResponseBreaches(supabase);
+  const stageAlerts = await checkStageAlerts(supabase);
 
-  return NextResponse.json({ ...result, slaBreaches, reassigned });
+  return NextResponse.json({ ...result, slaBreaches, reassigned, stageAlerts });
 }
