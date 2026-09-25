@@ -118,7 +118,7 @@ export function LeadDialog({
               ) : (
                 <div className="flex gap-2">
                   <Input name="newContactName" placeholder="Nome" required />
-                  <Input name="newContactPhone" placeholder="+5511999999999" required />
+                  <Input name="newContactPhone" placeholder="(11) 99999-9999" required />
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneField } from "@/lib/validation/contacts";
 
 const uuid = z.string().uuid();
 const optionalUuid = z.union([uuid, z.literal("")]).optional();
@@ -20,7 +21,7 @@ export const createLeadSchema = z
     ownerId: optionalUuid,
     contactId: optionalUuid,
     newContactName: z.string().trim().optional(),
-    newContactPhone: z.string().trim().optional(),
+    newContactPhone: phoneField.optional(),
     tagIds: z.array(uuid).optional(),
     ...commercialFields,
   })

@@ -1,5 +1,91 @@
 # PROGRESSO
 
+## 2026-09-25 (continuação 2) — Duplicidade de contatos: reforço (tarefa 17)
+
+Sem migration. A trava em si já existia (`unique(org_id, phone_e164)` desde
+o baseline, e-mail case-insensitive desde 0014), mas tinha buraco:
+
+**Bug corrigido**: o contato criado junto com um lead (Funil) não validava
+o telefone — gravava do jeito que foi digitado. "11 99999-9999" entrava
+cru, a trava de duplicidade não reconhecia como o mesmo "+5511999999999" (o
+índice compara texto exato) e o contato nunca casava com a conversa do
+WhatsApp. Verifiquei o banco: nenhum dos 634 contatos atuais foi afetado.
+
+**Normalização no cadastro manual**: `normalizeContactPhone`
+(`lib/crm/phone-normalize.ts`) — mesma regra brasileira da importação,
+mas aceita número estrangeiro quando digitado com "+" de outro país.
+Aplicada via `phoneField` (`lib/validation/contacts.ts`) no cadastro/edição
+de contato e no contato novo do lead. A importação continua só com a regra
+brasileira (decisão fechada pelo usuário).
+
+**Aviso amigável**: quando o banco recusa por duplicidade, agora a tela
+diz QUEM já existe ("Já existe um contato com esse telefone: João Silva.")
+e o formulário de contato mostra um link "Abrir contato existente"
+(`lib/crm/contact-duplicates.ts` — só roda depois da recusa do banco,
+escopado por org). A trava continua sendo o índice único, não essa busca.
+
+Testes: `tests/phone-normalize.test.ts`.
+
+## 2026-09-25 (continuação) — Dashboard em tempo real (tarefa 28) + ranking de vendedores (tarefa 29)
+
+Sem migration — tudo com dado que já existia.
+
+**Tempo real**: `app/(app)/dashboard/realtime-listener.tsx` assina `leads`,
+`conversations` e `messages` (todas já na publicação desde 0012/0016).
+Diferente dos outros listeners, tem debounce de 2s: o dashboard refaz
+várias consultas por render, então uma rajada de mensagens vira UM refresh.
+
+**Ranking de vendedores** (card novo no dashboard, respeita o filtro "Este
+mês"/"Total"): por vendedor — conversas em que respondeu, mensagens
+enviadas, tempo médio de resposta, ganhos, conversão e valor ganho;
+ordenado por ganhos. Mais o tempo médio de resposta da equipe toda. Lógica
+em função pura (`lib/reports/vendor-ranking.ts`, testada em
+`tests/vendor-ranking.test.ts`); busca de mensagens paginada
+(`vendor-ranking-data.ts`) porque o Supabase corta SELECT em 1000 linhas
+sem avisar. Template de disparo em massa (sem `sent_by`) não conta como
+resposta de ninguém. Quem não teve atividade no período fica fora.
+
+**Bug corrigido de carona**: o card "Contatos cadastrados" sempre mostrava
+0 — a consulta usava `head: true` (só contagem) mas lia `data.length`.
+
+**Decisão sem confirmar**: o ranking aparece pra todos os papéis, igual ao
+"Leads por responsável" que já existia no dashboard. Se vendedor não deve
+ver o desempenho dos colegas, dá pra restringir a gestor+.
+
+**Limitação conhecida**: `lib/reports/response-time.ts` (tempo médio na
+página de Relatórios) ainda usa `.limit(2000)`, que na prática o Supabase
+corta em 1000 — pode subestimar em períodos com muita mensagem. Não mexi
+por estar fora do escopo destas tarefas.
+
+## 2026-09-25 — Follow-up automático (tarefa 26) + transferência de conversa (tarefa 22)
+
+Migration `0020`. Duas tarefas da lista de pendências que não dependem do
+WhatsApp estar conectado (rodaram só com dado que já existe no banco).
+
+**Follow-up automático**: o indicador "lead parado" já existia como aviso
+visual (`stage_alert_days`, configurável em Automações desde a Fase 4) —
+só pintava o card no Kanban/Dashboard, não avisava ninguém de fato. Agora
+`fn_stage_alert_breaches()` (mesmo padrão de `fn_sla_breaches`, 0018 —
+marca como notificado atomicamente) roda no cron de 1 em 1 minuto e manda
+notificação pro responsável do lead quando ele estoura o prazo sem mudar
+de etapa. Só uma notificação por período parado (não fica repetindo todo
+dia) — se quiser lembrete recorrente enquanto continuar parado, isso muda.
+Só considera lead com dono individual e em aberto (`status = 'open'`);
+sem dono, não tem pra quem lembrar.
+
+**Transferência de conversa**: distinto de "assumir" (que só pega algo
+livre, ou — sendo gestor — toma de volta uma já atribuída). Agora dá pra
+escolher um colega específico e repassar a própria conversa direto, com
+um botão "Transferir" ao lado do status na tela do Inbox. Vendedor comum
+só repassa a própria conversa; gestor/admin repassa qualquer uma. Reseta
+`assigned_at` (novo período de primeiro atendimento pro destinatário,
+mesma régua da reatribuição automática da 0019). Notifica quem recebeu
+(reaproveitando "lead atribuído a você") e quem perdeu, exceto quando foi
+a própria pessoa que decidiu repassar.
+
+Aplicada e verificada no banco. Revisão de segurança rodada, sem achado de
+alta confiança.
+
 ## 2026-09-24 (continuação 2) — Reatribuição automática por falta de 1ª resposta
 
 Migration `0019`. Regra nova no rodízio, diferente do alerta de SLA (0018):

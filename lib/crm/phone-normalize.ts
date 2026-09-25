@@ -1,6 +1,8 @@
 export type PhoneNormalizationResult = { phone: string; error?: undefined } | { phone?: undefined; error: string };
 
-const INVALID_FORMAT_ERROR = "Telefone precisa estar no formato internacional, ex.: +5511999999999.";
+const INVALID_FORMAT_ERROR = "Telefone inválido — confira o DDD e o número, ex.: (11) 99999-9999.";
+const INVALID_INTERNATIONAL_ERROR = "Telefone internacional inválido, ex.: +14155550123.";
+const E164_REGEX = /^\+[1-9]\d{7,14}$/;
 
 /**
  * Planilha de contato brasileiro chega em qualquer formato — com/sem DDI,
@@ -39,4 +41,24 @@ export function normalizeBrazilianPhone(raw: string): PhoneNormalizationResult {
   // Não força um número que não fecha a conta — geralmente é DDD ausente
   // ou telefone incompleto, e não dá pra adivinhar isso com segurança.
   return { error: INVALID_FORMAT_ERROR };
+}
+
+/**
+ * Cadastro manual (contato avulso ou criado junto com um lead): mesma
+ * normalização brasileira da importação, exceto quando a pessoa digitou
+ * explicitamente um "+" com outro código de país — aí aceita como número
+ * estrangeiro em vez de tentar enfiar um 55 na frente. A importação
+ * continua usando só normalizeBrazilianPhone (regra fechada: planilha é
+ * toda do Brasil).
+ */
+export function normalizeContactPhone(raw: string): PhoneNormalizationResult {
+  const trimmed = raw.trim();
+  const compact = trimmed.replace(/[^\d+]/g, "");
+
+  if (compact.startsWith("+") && !compact.startsWith("+55")) {
+    const international = "+" + compact.replace(/\D/g, "");
+    return E164_REGEX.test(international) ? { phone: international } : { error: INVALID_INTERNATIONAL_ERROR };
+  }
+
+  return normalizeBrazilianPhone(trimmed);
 }

@@ -6,14 +6,25 @@ import { getActiveOrgMembership } from "@/lib/auth/session";
 import { logAudit } from "@/lib/audit/log";
 import { contactSchema } from "@/lib/validation/contacts";
 import { syncConsent } from "@/lib/crm/consent";
+import { findDuplicateContact, duplicateMessage } from "@/lib/crm/contact-duplicates";
 
-export type ContactActionState = { error?: string; success?: true } | null;
+export type ContactActionState = {
+  error?: string;
+  success?: true;
+  /** Contato que já existe com o mesmo telefone/e-mail — a tela mostra um link pra ele. */
+  duplicate?: { id: string; name: string | null };
+} | null;
 
-function mapContactDuplicateError(message: string | undefined): string {
-  if (message?.includes("uq_contacts_org_email")) {
-    return "Já existe um contato com esse e-mail.";
-  }
-  return "Já existe um contato com esse telefone.";
+async function duplicateState(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  params: { orgId: string; phone: string; email?: string | null; excludeId?: string; dbMessage?: string },
+): Promise<ContactActionState> {
+  const duplicate = await findDuplicateContact(supabase, params);
+  const fallbackField = params.dbMessage?.includes("uq_contacts_org_email") ? "email" : "phone";
+  return {
+    error: duplicateMessage(duplicate, fallbackField),
+    duplicate: duplicate ? { id: duplicate.id, name: duplicate.name } : undefined,
+  };
 }
 
 export async function createContact(
@@ -49,7 +60,12 @@ export async function createContact(
 
   if (error || !contact) {
     if (error?.code === "23505") {
-      return { error: mapContactDuplicateError(error.message) };
+      return duplicateState(supabase, {
+        orgId: membership.orgId,
+        phone: parsed.data.phone_e164,
+        email: parsed.data.email || null,
+        dbMessage: error.message,
+      });
     }
     console.error("[contacts] createContact falhou:", error?.code, error?.message);
     return { error: "Não foi possível criar o contato." };
@@ -115,7 +131,13 @@ export async function updateContact(
 
   if (error) {
     if (error.code === "23505") {
-      return { error: mapContactDuplicateError(error.message) };
+      return duplicateState(supabase, {
+        orgId: membership.orgId,
+        phone: parsed.data.phone_e164,
+        email: parsed.data.email || null,
+        excludeId: id,
+        dbMessage: error.message,
+      });
     }
     console.error("[contacts] updateContact falhou:", error.code, error.message);
     return { error: "Não foi possível atualizar o contato." };

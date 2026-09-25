@@ -8,6 +8,7 @@ import { calculateNewPosition } from "@/lib/crm/position";
 import { logAudit } from "@/lib/audit/log";
 import { createNotification } from "@/lib/notifications/create";
 import { tryAutoAssignFromRotation } from "@/lib/crm/rotation";
+import { findDuplicateContact, duplicateMessage } from "@/lib/crm/contact-duplicates";
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -74,7 +75,11 @@ export async function createLead(
 
     if (contactError) {
       if (contactError.code === "23505") {
-        return { error: "Já existe um contato com esse telefone. Escolha-o na lista." };
+        const duplicate = await findDuplicateContact(supabase, {
+          orgId: membership.orgId,
+          phone: parsed.data.newContactPhone!,
+        });
+        return { error: `${duplicateMessage(duplicate, "phone")} Escolha-o na lista de contatos.` };
       }
       console.error("[leads] criar contato inline falhou:", contactError.code, contactError.message);
       return { error: "Não foi possível criar o contato." };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { createContact, updateContact, type ContactActionState } from "@/lib/actions/contacts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,11 +55,11 @@ export function ContactDialog({
             <Input id="name" name="name" defaultValue={contact?.name} required />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="phone_e164">Telefone (formato internacional)</Label>
+            <Label htmlFor="phone_e164">Telefone</Label>
             <Input
               id="phone_e164"
               name="phone_e164"
-              placeholder="+5511999999999"
+              placeholder="(11) 99999-9999"
               defaultValue={contact?.phone_e164}
               required
             />
@@ -77,7 +78,20 @@ export function ContactDialog({
             <input type="checkbox" name="optedIn" defaultChecked={contact?.opted_in} />
             Aceita receber mensagens em massa (marketing)
           </label>
-          {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+          {state?.error && (
+            <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
+              <p className="text-destructive">{state.error}</p>
+              {state.duplicate && (
+                <Link
+                  href={`/contatos/${state.duplicate.id}`}
+                  onClick={() => setOpen(false)}
+                  className="w-fit text-xs font-medium text-primary hover:underline"
+                >
+                  Abrir contato existente
+                </Link>
+              )}
+            </div>
+          )}
           <Button type="submit" disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar"}
           </Button>
