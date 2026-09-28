@@ -95,19 +95,48 @@ export async function toggleTeamMember(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
 
+  // Setor e pessoa precisam ser desta organização — a RLS só garante o
+  // org_id da linha nova, não que team_id/user_id apontem pra cá. Sem isso,
+  // um usuário de fora poderia entrar no rodízio e receber conversas.
+  const [{ data: team }, { data: member }] = await Promise.all([
+    supabase.from("teams").select("id").eq("id", parsed.data.teamId).eq("org_id", membership.orgId).maybeSingle(),
+    supabase
+      .from("org_members")
+      .select("user_id")
+      .eq("org_id", membership.orgId)
+      .eq("user_id", parsed.data.userId)
+      .not("accepted_at", "is", null)
+      .maybeSingle(),
+  ]);
+  if (!team || !member) return;
+
   if (parsed.data.action === "add") {
-    await supabase.from("team_members").insert({
+    const { error } = await supabase.from("team_members").insert({
       org_id: membership.orgId,
       team_id: parsed.data.teamId,
       user_id: parsed.data.userId,
     });
+    if (error) return;
   } else {
-    await supabase
+    const { error } = await supabase
       .from("team_members")
       .delete()
+      .eq("org_id", membership.orgId)
       .eq("team_id", parsed.data.teamId)
       .eq("user_id", parsed.data.userId);
+    if (error) return;
   }
+
+  // Quem está em qual setor decide quem recebe lead/conversa pelo rodízio —
+  // mudança relevante o bastante pra ficar no histórico.
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: parsed.data.action === "add" ? "team.member_added" : "team.member_removed",
+    resourceType: "teams",
+    resourceId: parsed.data.teamId,
+    after: { user_id: parsed.data.userId },
+  });
 
   revalidatePath("/configuracoes/equipe");
 }

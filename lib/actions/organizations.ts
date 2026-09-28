@@ -44,6 +44,18 @@ export async function createOrganization(
     return { error: "Não foi possível criar a organização. Tente novamente." };
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  await logAudit(supabase, {
+    orgId: data.org_id,
+    actorId: user?.id ?? null,
+    action: "organization.created",
+    resourceType: "organizations",
+    resourceId: data.org_id,
+    after: { name: parsed.data.name, slug: data.org_slug },
+  });
+
   await setActiveOrgCookie(data.org_id);
   redirect("/dashboard");
 }

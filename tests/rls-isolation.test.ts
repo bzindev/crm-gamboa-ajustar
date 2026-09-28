@@ -88,12 +88,66 @@ describe.skipIf(!hasCredentials)("isolamento entre organizações (RLS)", () => 
       accepted_at: new Date().toISOString(),
     });
     if (memberBError) throw memberBError;
+
+    await seedOneRowPerTenantTable(orgBId, userBId);
   });
 
+  // Uma linha em CADA tabela com org_id, dentro da organização B — sem
+  // isso, "A lê zero linhas de B" passaria por tabela vazia, não por RLS.
+  async function seedOneRowPerTenantTable(orgId: string, userId: string) {
+    const insert = async (table: string, row: Record<string, unknown>) => {
+      const { data, error } = await admin.from(table).insert(row).select("*").single();
+      if (error) throw new Error(`seed ${table}: ${error.message}`);
+      return data as Record<string, unknown> & { id: string };
+    };
+
+    const pipeline = await insert("pipelines", { org_id: orgId, name: "Funil B" });
+    const stage = await insert("pipeline_stages", {
+      org_id: orgId, pipeline_id: pipeline.id, name: "Etapa B", position: 1,
+    });
+    const contact = await insert("contacts", { org_id: orgId, phone_e164: `+55119${String(suffix).slice(-8)}` });
+    const lead = await insert("leads", {
+      org_id: orgId, pipeline_id: pipeline.id, stage_id: stage.id, contact_id: contact.id, title: "Lead B",
+    });
+    const tag = await insert("tags", { org_id: orgId, name: "Tag B" });
+    await admin.from("lead_tags").insert({ org_id: orgId, lead_id: lead.id, tag_id: tag.id }).throwOnError();
+    const team = await insert("teams", { org_id: orgId, name: "Setor B" });
+    await admin.from("team_members").insert({ org_id: orgId, team_id: team.id, user_id: userId }).throwOnError();
+    const channel = await insert("channels", {
+      org_id: orgId, waba_id: `waba-${suffix}`, phone_number_id: `pn-${suffix}`,
+    });
+    const conversation = await insert("conversations", {
+      org_id: orgId, contact_id: contact.id, channel_id: channel.id,
+    });
+    await insert("messages", {
+      org_id: orgId, conversation_id: conversation.id, direction: "inbound", type: "text", status: "received",
+    });
+    await insert("consents", { org_id: orgId, contact_id: contact.id, source: "teste" });
+    await insert("notifications", { org_id: orgId, user_id: userId, type: "teste", title: "Notificação B" });
+    await insert("audit_log", { org_id: orgId, action: "teste", resource_type: "teste" });
+    await insert("event_log", { org_id: orgId, type: "teste", payload: {} });
+    await insert("org_invites", {
+      org_id: orgId, email: `convite-${suffix}@example.com`, role: "agent", token: `token-${suffix}`,
+    });
+    await insert("webhook_deliveries", { org_id: orgId, payload: {}, signature_valid: true });
+    const template = await insert("message_templates", {
+      org_id: orgId, name: `tpl_${suffix}`, category: "UTILITY", body_text: "Olá",
+    });
+    const campaign = await insert("bulk_campaigns", { org_id: orgId, name: "Campanha B", template_id: template.id });
+    await insert("bulk_campaign_recipients", { org_id: orgId, campaign_id: campaign.id, contact_id: contact.id });
+  }
+
   afterAll(async () => {
-    // organizations tem "on delete cascade" para org_members — apagar a
-    // organização já limpa a membresia junto.
-    await admin.from("organizations").delete().in("id", [orgAId, orgBId]);
+    // Quase tudo cai em cascata ao apagar a organização; leads→etapa e
+    // campanha→template são RESTRICT, então esses saem antes.
+    const orgIds = [orgAId, orgBId].filter(Boolean);
+    // event_log/webhook_deliveries não caem em cascata (org_id vira null) —
+    // sem apagar antes, ficavam como lixo órfão na fila real.
+    await admin.from("event_log").delete().in("org_id", orgIds);
+    await admin.from("webhook_deliveries").delete().in("org_id", orgIds);
+    await admin.from("leads").delete().in("org_id", orgIds);
+    await admin.from("bulk_campaigns").delete().in("org_id", orgIds);
+    await admin.from("organizations").delete().in("id", orgIds);
     await admin.auth.admin.deleteUser(userAId);
     await admin.auth.admin.deleteUser(userBId);
   });
@@ -149,5 +203,67 @@ describe.skipIf(!hasCredentials)("isolamento entre organizações (RLS)", () => 
       .eq("id", orgAId);
     expect(ownOrgError).toBeNull();
     expect(ownOrg).toEqual([{ id: orgAId }]);
+  });
+
+  const TENANT_TABLES = [
+    "audit_log", "bulk_campaign_recipients", "bulk_campaigns", "channels", "consents", "contacts",
+    "conversations", "event_log", "lead_tags", "leads", "message_templates", "messages",
+    "notifications", "org_invites", "pipeline_stages", "pipelines", "tags", "team_members",
+    "teams", "webhook_deliveries",
+  ];
+
+  // Um login só, reaproveitado — o Supabase limita logins por minuto, e
+  // logar de novo pra cada tabela estourava o limite na suíte completa.
+  let sessionA: Promise<SupabaseClient> | null = null;
+  function signInAsA() {
+    sessionA ??= (async () => {
+      const client = createSupabaseClient(SUPABASE_URL!, ANON_KEY!, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { error } = await client.auth.signInWithPassword({ email: userAEmail, password });
+      if (error) throw error;
+      return client;
+    })();
+    return sessionA;
+  }
+
+  it.each(TENANT_TABLES)("controle: B tem linha de verdade em %s", async (table) => {
+    const { count, error } = await admin
+      .from(table)
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", orgBId);
+    expect(error).toBeNull();
+    expect(count).toBeGreaterThan(0);
+  });
+
+  it.each(TENANT_TABLES)("usuário de A não lê nenhuma linha de B em %s", async (table) => {
+    const asUserA = await signInAsA();
+    const { data, error } = await asUserA.from(table).select("*").eq("org_id", orgBId);
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+  });
+
+  it("usuário de A não consegue criar, alterar nem apagar dado de B", async () => {
+    const asUserA = await signInAsA();
+
+    const { error: insertError } = await asUserA
+      .from("contacts")
+      .insert({ org_id: orgBId, phone_e164: "+5511900000001" });
+    expect(insertError).not.toBeNull();
+
+    const { data: target } = await admin.from("contacts").select("id, name").eq("org_id", orgBId).limit(1).single();
+
+    const { data: updated } = await asUserA
+      .from("contacts")
+      .update({ name: "invadido" })
+      .eq("id", target!.id)
+      .select("id");
+    expect(updated ?? []).toEqual([]);
+
+    const { data: deleted } = await asUserA.from("contacts").delete().eq("id", target!.id).select("id");
+    expect(deleted ?? []).toEqual([]);
+
+    const { data: after } = await admin.from("contacts").select("id, name").eq("id", target!.id).single();
+    expect(after).toEqual(target);
   });
 });

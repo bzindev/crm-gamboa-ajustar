@@ -1,7 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/cadastro", "/convite"];
+// /api/webhooks e /api/cron são chamados por máquina (Meta, Vercel Cron),
+// nunca com sessão de usuário — sem estarem aqui, o proxy redirecionava os
+// dois pra /login e nada chegava no handler. Não ficam desprotegidos: cada
+// rota valida a própria credencial antes de tocar no banco (assinatura
+// HMAC da Meta / Bearer CRON_SECRET).
+const PUBLIC_PATHS = ["/login", "/cadastro", "/convite", "/api/webhooks", "/api/cron"];
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PATHS.some(
@@ -42,6 +47,19 @@ export async function proxy(request: NextRequest) {
   if (!user && !isPublicPath(request.nextUrl.pathname)) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Quem ativou o 2FA e ainda não digitou o código nesta sessão vai pra
+  // tela do código. A barreira de verdade é o banco (migration 0025 — sem
+  // aal2, nenhuma tabela responde); isto aqui é só pra pessoa não cair
+  // numa tela vazia.
+  if (user && !isPublicPath(request.nextUrl.pathname)) {
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+      const mfaUrl = new URL("/login/2fa", request.url);
+      mfaUrl.searchParams.set("redirectTo", request.nextUrl.pathname);
+      return NextResponse.redirect(mfaUrl);
+    }
   }
 
   return response;

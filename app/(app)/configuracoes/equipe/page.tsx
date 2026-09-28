@@ -16,6 +16,9 @@ import { PresenceDot } from "@/components/presence/presence-dot";
 import { resolvePresenceStatus, PRESENCE_LABELS } from "@/lib/presence/status";
 import { InviteForm } from "./invite-form";
 import { TeamsSection } from "./teams-section";
+import { RemoveMemberButton } from "./remove-member-button";
+import { CancelInviteButton } from "./cancel-invite-button";
+import { PresenceListener } from "@/components/presence/presence-listener";
 
 type ProfileRow = {
   full_name: string | null;
@@ -66,6 +69,13 @@ export default async function EquipePage() {
     ]);
 
   const memberList = (members as MemberRow[] | null) ?? [];
+
+  // Espelha as regras de fn_remove_org_member (migration 0022) só pra
+  // decidir se o botão aparece — quem decide de verdade é o banco.
+  const canRemove = (member: MemberRow) =>
+    member.user_id !== membership.userId &&
+    member.role !== "owner" &&
+    (member.role !== "admin" || membership.role === "owner");
   const memberOptions = memberList.map((m) => {
     const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
     return { userId: m.user_id, name: profile?.full_name ?? "(sem nome)" };
@@ -79,6 +89,7 @@ export default async function EquipePage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <PresenceListener />
       <p className="text-sm text-muted-foreground">
         Membros, convites e setores de {membership.orgName}.
       </p>
@@ -125,6 +136,11 @@ export default async function EquipePage() {
                 <span className="flex-1">{name}</span>
                 <span className="text-xs text-muted-foreground">{PRESENCE_LABELS[status]}</span>
                 <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
+                {canRemove(member) ? (
+                  <RemoveMemberButton userId={member.user_id} name={name} />
+                ) : (
+                  <span className="size-8" />
+                )}
               </div>
             );
           })}
@@ -150,6 +166,7 @@ export default async function EquipePage() {
                   <span className="text-xs text-muted-foreground">
                     expira em {new Date(invite.expires_at).toLocaleDateString("pt-BR")}
                   </span>
+                  <CancelInviteButton inviteId={invite.id} />
                 </div>
               </div>
             ))}

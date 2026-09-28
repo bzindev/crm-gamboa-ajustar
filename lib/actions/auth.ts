@@ -3,15 +3,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signUpSchema, signInSchema } from "@/lib/validation/auth";
+import { safeRedirectPath } from "@/lib/auth/safe-redirect";
 
 export type AuthActionState = { error?: string; message?: string } | null;
 
 /** Só aceita caminho relativo interno — evita open redirect via campo de formulário. */
 function safeRedirectTarget(raw: FormDataEntryValue | null): string {
-  if (typeof raw === "string" && raw.startsWith("/") && !raw.startsWith("//")) {
-    return raw;
-  }
-  return "/dashboard";
+  return safeRedirectPath(raw);
 }
 
 /**

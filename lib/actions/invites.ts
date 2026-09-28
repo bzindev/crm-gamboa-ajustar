@@ -1,6 +1,7 @@
 "use server";
 
 import crypto from "node:crypto";
+import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -124,4 +125,56 @@ export async function acceptInvite(
 
   await setActiveOrgCookie(data.result_org_id);
   redirect("/dashboard");
+}
+
+export type CancelInviteState = { error?: string; success?: true } | null;
+
+export async function cancelInvite(
+  _prevState: CancelInviteState,
+  formData: FormData,
+): Promise<CancelInviteState> {
+  let membership;
+  try {
+    membership = await requireRole("admin");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+
+  const parsedId = z.string().uuid().safeParse(formData.get("inviteId"));
+  if (!parsedId.success) {
+    return { error: "Convite inválido." };
+  }
+  const inviteId = parsedId.data;
+
+  const supabase = await createClient();
+  // Só convite ainda não aceito — convite aceito já virou membro, e isso se
+  // desfaz removendo o membro, não o convite.
+  const { data: deleted, error } = await supabase
+    .from("org_invites")
+    .delete()
+    .eq("id", inviteId)
+    .eq("org_id", membership.orgId)
+    .is("accepted_at", null)
+    .select("email, role")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[invites] cancelInvite falhou:", error.code, error.message);
+    return { error: "Não foi possível cancelar o convite." };
+  }
+  if (!deleted) {
+    return { error: "Convite não encontrado ou já aceito." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "invite.cancelled",
+    resourceType: "org_invites",
+    resourceId: inviteId,
+    before: { email: deleted.email, role: deleted.role },
+  });
+
+  revalidatePath("/configuracoes/equipe");
+  return { success: true };
 }
