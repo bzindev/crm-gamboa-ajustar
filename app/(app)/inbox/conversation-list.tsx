@@ -158,7 +158,7 @@ export function ConversationList({ conversations }: { conversations: Conversatio
                   <p className="truncate text-xs text-muted-foreground">
                     {conversation.lastMessagePreview ?? conversation.contactPhone}
                   </p>
-                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                     {conversation.assignedToMe
                       ? "Com você"
                       : conversation.assignedToName

@@ -85,7 +85,7 @@ export function Sidebar({
             className="object-cover"
           />
         </div>
-        <span className="text-xs text-sidebar-foreground/50">Admin Panel</span>
+        <span className="text-xs text-sidebar-foreground/75">Admin Panel</span>
       </div>
 
       <OrgSwitcher orgs={orgs} currentOrgId={membership.orgId} />
@@ -100,13 +100,13 @@ export function Sidebar({
             return (
               <span
                 key={item.href}
-                className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground/40"
+                className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground/60"
               >
                 <span className="flex items-center gap-2.5">
                   <Icon className="size-4" />
                   {item.label}
                 </span>
-                <Badge variant="secondary" className="bg-white/10 text-[10px] text-sidebar-foreground/70">
+                <Badge variant="secondary" className="bg-white/10 text-[10px] text-sidebar-foreground/85">
                   em breve
                 </Badge>
               </span>
@@ -140,7 +140,7 @@ export function Sidebar({
           </Avatar>
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-medium text-white">{userName}</span>
-            <span className="truncate text-xs text-sidebar-foreground/50">
+            <span className="truncate text-xs text-sidebar-foreground/75">
               {ROLE_LABELS[membership.role]}
             </span>
           </div>

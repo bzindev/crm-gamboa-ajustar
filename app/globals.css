@@ -128,5 +128,20 @@
   }
   html {
     @apply font-sans;
+    /* Sem isto o navegador desenha os controles NATIVOS (lista do <select>,
+       calendário de data/mês, setas de número, checkbox, barra de rolagem)
+       no modo claro — a lista de opções saía com fundo branco e herdava o
+       texto branco do tema: branco no branco. */
+    color-scheme: dark;
+  }
+  /* Alguns navegadores (Chrome no Windows) ignoram o color-scheme na lista
+     de opções — cor explícita garante contraste em todo <select> do app. */
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  select option:disabled {
+    color: var(--muted-foreground);
   }
 }

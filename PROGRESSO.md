@@ -1,5 +1,196 @@
 # PROGRESSO
 
+## 2026-09-28 (continuação 3) — Enter pra enviar + contraste
+
+- Chat: Enter envia, Shift+Enter pula linha (ignora Enter enquanto o
+  teclado ainda compõe acento).
+- Branco no branco nas listas de seleção: o tema é escuro mas faltava
+  `color-scheme: dark` — o navegador desenhava todo controle nativo
+  (lista do `<select>`, calendário, checkbox) no modo claro. Corrigido no
+  `globals.css` (vale pro app inteiro) + cor explícita nas opções.
+- Contraste abaixo de 4,5:1 corrigido: textos da barra lateral ("Admin
+  Panel", papel, itens "em breve"), linha "Com fulano" da lista de
+  conversas, atalho "Automações" do dashboard (branco sobre amarelo
+  escuro) e tiques de lida/falha no balão amarelo.
+- "ChunkLoadError (stale)" no Inbox: cache velho do servidor de dev (muita
+  mudança seguida + build rodando junto) — resolvido reiniciando com
+  `.next/dev` limpo; não era bug do código.
+
+## 2026-09-28 (continuação 2) — Rodada grande: todas as tarefas restantes da lista
+
+Migrations `0023` a `0027` (e `0026` reaplicada com correção — ver LGPD).
+Todas aplicadas e verificadas no banco. Tarefas 10/31/32 (agenda) seguem
+fora por decisão do usuário.
+
+**Conversa**: "Assumir conversa" e "Transferir" no topo da tela da conversa
+(antes o assumir só aparecia no rodapé em modo leitura, e transferir exigia
+já ter dono). Gestor+ pode "transferir" uma conversa sem dono = atribuir
+direto. Criada uma conversa de demonstração com o contato fictício
+"Cliente Demonstração (teste)" (+5511900000001) pra mostrar os botões.
+
+**23 — Status de leitura**: lida = tique azul, falha = aviso vermelho,
+nome do status no hover. Status só avança (Meta não garante ordem dos
+avisos — um "delivered" atrasado não sobrescreve mais um "read").
+
+**21 — Respostas rápidas** (`0023`): cadastro em Configurações (gerente+),
+botão ⚡ no chat insere no cursor; `{nome}` vira o primeiro nome. 3
+respostas iniciais cadastradas.
+
+**20 — Histórico do cliente**: linha do tempo na página do contato
+(mensagens, leads, mudanças de etapa, assumir/transferir/reatribuir,
+opt-in/out, com quem fez). **Bug corrigido**: a página carregava o contato
+sem e-mail e o "Editar" dali apagava o e-mail sem avisar.
+
+**18 — Lead scoring**: nota 0–100 (temperatura, etapa, valor, cliente falou
+nas últimas 48h/7d, penalidade por lead parado) no card do Funil (hover
+mostra o porquê) e card "Atender primeiro" no Dashboard.
+
+**25 — Metas** (`0024`): por mês, da equipe ou por vendedor (quantidade e
+valor opcional), aba em Configurações (gerente+), progresso no Dashboard
+(vendedor vê a da equipe e a própria). Mês calculado no fuso de São Paulo.
+
+**15 — 2FA** (`0025`): TOTP (app autenticador) em "Segurança (2FA)" no menu
+do avatar; login pede o código. Não é só visual: política RESTRICTIVE em
+todas as tabelas — com 2FA ativo, sessão sem código (aal1) não lê nem
+grava nada, nem pela API direto. **Toda tabela nova precisa declarar a
+política `mfa_required`** (a 0025 só percorreu as que existiam — a 0027 já
+faz isso). Testado de ponta a ponta no app.
+
+**34 — LGPD** (`0026`): anonimizar contato (admin, confirmação digitando
+ANONIMIZAR) apaga nome/telefone/e-mail/texto das mensagens e as cópias
+brutas no webhook/fila, mantém os negócios; exportar dados do contato em
+JSON (portabilidade); retenção automática opcional (desligada). **Correção
+feita na mesma rodada**: a limpeza das cópias brutas procurava o telefone
+em todas as organizações — um admin de A poderia apagar registros de B
+cadastrando o mesmo telefone. Agora é restrita à organização do contato e
+só mexe em evento já processado; teste cobre esse caso.
+
+**30 — CSAT** (`0027`): ao marcar a conversa como Resolvida, envia nota de
+1 a 5 (desligado por padrão, texto configurável em Geral). Resposta "5"
+vira nota sem reabrir a conversa nem notificar; reprocessamento do worker
+não duplica. Só envia dentro da janela de 24h da Meta (senão "pulada").
+Card de satisfação no Dashboard (média, % 4–5, taxa de resposta, por
+vendedor).
+
+**33 — Backup**: `/api/cron/backup` diário (03:00 BRT, `vercel.json`) grava
+todas as tabelas, compactadas, num bucket PRIVADO `backups` do Storage;
+guarda 14. `scripts/restore-backup.mjs` lista/simula/restaura (upsert na
+ordem pais→filhos). Restauração provada apagando e restaurando uma
+organização de teste. O arquivo tem dados de todas as organizações — por
+isso a tela só mostra data/tamanho do último, sem download. Não depende do
+plano do Supabase (não deu pra consultar se o plano tem backup gerenciado:
+o token de CLI não tem essa permissão).
+
+**Desempenho — presença**: o ouvinte de presença saiu do layout global (só
+a tela de Equipe mostra presença) e só recarrega quando o status muda de
+fato + 1 recarga/min pra pegar quem ficou offline. Antes, cada heartbeat
+de qualquer pessoa recarregava a tela de todo mundo.
+
+**Outros**: comparação do `CRON_SECRET` em tempo constante
+(`lib/cron/auth.ts`, usado pelas duas rotas de cron); Vitest trata
+`server-only` como vazio (`tests/stubs`) pra poder testar o worker de
+verdade; testes contra o banco reaproveitam a sessão (o Supabase limita
+logins por minuto e a suíte completa estourava).
+
+**Revisão de segurança da rodada — corrigido** (migration `0028`, `0022` e
+`0026` reaplicadas, todas ainda não commitadas quando ajustadas):
+- LGPD: limpeza das cópias brutas agora restrita à organização do contato,
+  só em evento já processado, e por comparação EXATA nos campos de
+  telefone do payload (antes era busca por trecho de texto — 8 dígitos
+  soltos casariam com horário/wamid e apagariam registros sem relação).
+- 2FA: funções SECURITY DEFINER passam por cima da RLS (e da regra do
+  2FA). `fn_remove_org_member`, `fn_anonymize_contact`,
+  `fn_next_rotation_member` e a nova `fn_queue_csat_survey` agora checam
+  `fn_mfa_ok()` — senha roubada sem o código não chama nenhuma delas.
+  **Regra pra frente: toda função SECURITY DEFINER chamável por
+  `authenticated` precisa dessa checagem.**
+- CSAT: `csat_surveys` virou só leitura pra membro (antes qualquer um
+  gravava nota direto pela API, inclusive se autoavaliar); a pesquisa é
+  criada por `fn_queue_csat_survey`, que tira tudo da própria conversa.
+- Redirecionamento aberto: "/\site.com" passava na validação do login e da
+  tela do 2FA (a do login já existia antes). Helper único
+  `lib/auth/safe-redirect.ts`, com teste.
+- `cancelInvite` valida o id com Zod.
+Limitação conhecida, igual ao resto do app: permissão por papel é
+checada na Server Action, não na RLS — um vendedor chamando a API direto
+consegue gravar em tabelas "for all" da própria organização (ex.: metas).
+Não é vazamento entre organizações; mudar isso é decisão de arquitetura.
+
+**WhatsApp — pendente com o usuário**: webhook ainda não configurado na
+Meta e `WHATSAPP_APP_SECRET` vazio no `.env.local`. Túnel Cloudflare +
+"cron local" rodando nesta sessão pra teste; o endereço do túnel muda a
+cada reinício.
+
+## 2026-09-28 (continuação) — Remover membro e cancelar convite
+
+Migration `0022`. Botão de remover em Configurações → Equipe (admin/dono).
+`org_members` só tem política de SELECT, então a remoção é a função
+`fn_remove_org_member` (SECURITY DEFINER, chamável por `authenticated`),
+que confere as regras dentro do banco e faz tudo numa transação:
+- só admin/dono remove; ninguém remove a si mesmo nem o dono; admin não
+  remove outro admin (só o dono);
+- conversas e leads **em aberto** da pessoa ficam sem responsável; leads
+  ganhos/perdidos mantêm o dono (histórico/relatórios);
+- sai de todos os setores e do "último atribuído" do rodízio;
+- perde o acesso na hora; a conta de login NÃO é apagada (pode estar em
+  outra organização).
+Grava `member.removed` no histórico. Também dá pra cancelar convite
+pendente (`invite.cancelled`). Testes contra o banco real em
+`tests/remove-member.test.ts` (8 casos, incluindo dono de outra
+organização tentando remover).
+
+## 2026-09-28 — Checagem geral (banco, auth, permissões, funil, histórico, API, frontend, workflows)
+
+Checagem feita rodando coisas de verdade (banco real, rotas, testes,
+login), não só lendo código. Achados e correções:
+
+**Crítico, corrigido — `proxy.ts` bloqueava `/api/webhooks` e `/api/cron`**:
+o proxy redirecionava pra `/login` toda requisição sem sessão, inclusive
+as de máquina. Nenhuma mensagem da Meta chegaria no webhook e o cron
+(SLA, reatribuição, follow-up, disparo em massa, fila de eventos) nunca
+rodaria, nem depois de publicado. As duas rotas agora passam pelo proxy e
+continuam protegidas pela própria credencial (testado: sem/errada → 401/403,
+certa → 200).
+
+**Corrigido — migration 0015 nunca tinha sido aplicada**: as tabelas do
+disparo em massa (`message_templates`, `bulk_campaigns`,
+`bulk_campaign_recipients`) não existiam no banco; as telas de Disparos
+quebrariam. Aplicada; as páginas abrem.
+
+**Corrigido — teste de isolamento só cobria 2 de 20 tabelas**: ampliado
+pra criar dado real em TODAS as tabelas com `org_id` da organização B e
+provar que o usuário da A não lê nada e não consegue criar/alterar/apagar
+(43 testes, contra o banco real, com limpeza no final).
+
+**Corrigido — histórico**: incluir/remover alguém de setor (define quem
+recebe no rodízio) e criar organização passaram a gravar `audit_log`.
+`toggleTeamMember` também passou a conferir que setor e pessoa são da
+própria organização. Migration 0021 retira `TRUNCATE` de anon/authenticated
+em todas as tabelas (não era explorável pela API, mas o histórico é
+append-only por regra).
+
+**Primeira execução real do cron**: esvaziou 33 eventos que estavam
+parados na fila desde 23/09 e gerou 6 notificações de follow-up (lead
+parado) pro dono da conta; rodando de novo não duplicou.
+
+**Ok sem mudança**: RLS ligada nas 20 tabelas (+3 da 0015); nenhum
+`getSession()`; toda Server Action que grava exige login/papel;
+integridade do funil (nenhum lead com etapa/contato/dono de outra
+organização); nenhum segredo no histórico do git (o repositório é
+público); todas as 18 telas abrem logado.
+
+**Pendente — decisão/ação do usuário**:
+- App não está publicado (nenhum deploy no GitHub) — fora do ar, nenhum
+  workflow automático roda. `vercel.json` agenda o cron de 1 em 1 minuto,
+  o que exige plano pago da Vercel.
+- Nenhum setor tem membros, nem "Venda Veículos Novos" (o do rodízio) — o
+  rodízio não tem pra quem distribuir até alguém ser incluído em
+  Configurações → Equipe.
+- Desempenho: todo heartbeat de presença (1/min por usuário) faz TODAS as
+  abas de todos os usuários recarregarem a tela (`PresenceListener` escuta
+  qualquer UPDATE em `profiles`). Com 10 vendedores, ~10 recargas por
+  minuto em cada aba — pesa mais agora que o dashboard tem ranking.
+
 ## 2026-09-25 (continuação 2) — Duplicidade de contatos: reforço (tarefa 17)
 
 Sem migration. A trava em si já existia (`unique(org_id, phone_e164)` desde
