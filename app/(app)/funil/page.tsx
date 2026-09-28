@@ -5,6 +5,7 @@ import { getDefaultPipelineId } from "@/lib/crm/pipeline";
 import { DEFAULT_VOCABULARY, type Vocabulary } from "@/lib/validation/pipelines";
 import { KanbanBoard, type LeadCard, type Stage } from "./kanban-board";
 import { RealtimeListener } from "./realtime-listener";
+import { scoreLead, openStageIndex, lastInboundByContact, daysSinceDate } from "@/lib/crm/lead-score";
 
 export default async function FunilPage() {
   const membership = await getActiveOrgMembership();
@@ -22,6 +23,7 @@ export default async function FunilPage() {
     { data: members },
     { data: teams },
     { data: org },
+    { data: conversations },
   ] = await Promise.all([
     supabase.from("pipelines").select("id, vocabulary").eq("id", pipelineId).single(),
     supabase
@@ -57,9 +59,17 @@ export default async function FunilPage() {
       .select("stage_alert_days")
       .eq("id", membership.orgId)
       .single(),
+    supabase
+      .from("conversations")
+      .select("contact_id, last_inbound_at")
+      .eq("org_id", membership.orgId)
+      .not("last_inbound_at", "is", null),
   ]);
 
   const stagesTyped: Stage[] = stages ?? [];
+  const stageAlertDays = org?.stage_alert_days ?? 3;
+  const { indexById, count: openStageCount } = openStageIndex(stagesTyped);
+  const lastInbound = lastInboundByContact(conversations ?? []);
 
   const leads: LeadCard[] = (leadsData ?? []).map((lead) => {
     const contact = Array.isArray(lead.contacts) ? lead.contacts[0] : lead.contacts;
@@ -88,6 +98,16 @@ export default async function FunilPage() {
       teamName: team?.name ?? null,
       stageEnteredAt: lead.stage_entered_at,
       tags: leadTags,
+      score: scoreLead({
+        status: lead.status,
+        temperature: lead.temperature,
+        valueCents: lead.value_cents,
+        stageIndex: indexById.get(lead.stage_id) ?? 0,
+        openStageCount,
+        daysInStage: daysSinceDate(lead.stage_entered_at),
+        stageAlertDays,
+        lastInboundAt: lastInbound.get(lead.contact_id) ?? null,
+      }),
     };
   });
 
@@ -116,7 +136,7 @@ export default async function FunilPage() {
         teams={teams ?? []}
         vocabulary={vocabulary}
         canManageSettings={canManageSettings}
-        stageAlertDays={org?.stage_alert_days ?? 3}
+        stageAlertDays={stageAlertDays}
       />
     </>
   );

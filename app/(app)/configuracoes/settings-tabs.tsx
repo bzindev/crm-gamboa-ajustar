@@ -9,6 +9,8 @@ const TABS = [
   { href: "/configuracoes/equipe", label: "Equipe" },
   { href: "/configuracoes/whatsapp", label: "Conexões" },
   { href: "/configuracoes/sla-rodizio", label: "SLA e Rodízio" },
+  { href: "/configuracoes/respostas-rapidas", label: "Respostas rápidas" },
+  { href: "/configuracoes/metas", label: "Metas" },
 ];
 
 export function SettingsTabs() {

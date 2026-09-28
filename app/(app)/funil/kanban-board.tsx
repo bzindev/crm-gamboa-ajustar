@@ -31,6 +31,7 @@ import { formatCents } from "@/lib/format/currency";
 import { getInitials } from "@/lib/format/initials";
 import { cn } from "@/lib/utils";
 import type { Vocabulary } from "@/lib/validation/pipelines";
+import type { LeadScore } from "@/lib/crm/lead-score";
 import { LeadDialog } from "./lead-dialog";
 import { PipelineSettingsSheet } from "./pipeline-settings-sheet";
 
@@ -63,6 +64,14 @@ export type LeadCard = {
   teamId: string | null;
   stageEnteredAt: string;
   tags: { id: string; name: string; color: string }[];
+  /** Prioridade de atendimento (lib/crm/lead-score.ts) — null pra ganho/perdido. */
+  score: LeadScore | null;
+};
+
+const SCORE_BADGE: Record<LeadScore["level"], string> = {
+  alta: "bg-primary text-primary-foreground",
+  media: "bg-muted text-foreground",
+  baixa: "bg-muted/60 text-muted-foreground",
 };
 
 function daysInStage(stageEnteredAt: string): number {
@@ -146,9 +155,19 @@ const LeadCardView = forwardRef<
       )}
 
       <div className="flex items-center justify-between pt-1">
-        <span className="text-sm font-semibold text-primary">
-          {formatCents(lead.valueCents)}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-primary">
+            {formatCents(lead.valueCents)}
+          </span>
+          {lead.score && (
+            <span
+              title={`Prioridade ${lead.score.level}: ${lead.score.reasons.join(", ")}`}
+              className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", SCORE_BADGE[lead.score.level])}
+            >
+              ★ {lead.score.score}
+            </span>
+          )}
+        </div>
         {lead.ownerName && (
           <Avatar className="size-6">
             <AvatarFallback className="bg-sidebar-accent text-[10px] text-sidebar-accent-foreground">

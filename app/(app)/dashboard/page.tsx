@@ -21,6 +21,10 @@ import { getInitials } from "@/lib/format/initials";
 import { buildVendorRanking } from "@/lib/reports/vendor-ranking";
 import { fetchMessagesForRanking } from "@/lib/reports/vendor-ranking-data";
 import { formatResponseMinutes } from "@/lib/reports/response-time";
+import { scoreLead, openStageIndex, lastInboundByContact } from "@/lib/crm/lead-score";
+import { computeGoalProgress, monthKey, monthKeyToDate } from "@/lib/crm/goals";
+import { GoalProgressList } from "@/components/goals/goal-progress-list";
+import { summarizeCsat } from "@/lib/crm/csat";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -111,7 +115,7 @@ const QUICK_ACTIONS = [
   { href: "/funil", label: "Ver Funil", sub: "Kanban de vendas", icon: KanbanSquare, className: "bg-primary text-primary-foreground" },
   { href: "/contatos", label: "Contatos", sub: "Base de clientes", icon: Users, className: "bg-white text-[#18181b]" },
   { href: "/relatorios", label: "Relatórios", sub: "Exportar dados", icon: BarChart3, className: "bg-zinc-700 text-white" },
-  { href: "/automacoes", label: "Automações", sub: "Configurar alertas", icon: Zap, className: "bg-[#ca8a04] text-white" },
+  { href: "/automacoes", label: "Automações", sub: "Configurar alertas", icon: Zap, className: "bg-[#ca8a04] text-[#18181b]" },
 ];
 
 export default async function DashboardPage({
@@ -132,6 +136,8 @@ export default async function DashboardPage({
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
+  const currentMonthKey = monthKey(new Date());
+
   const startOfPrevMonth = new Date(startOfMonth);
   startOfPrevMonth.setMonth(startOfPrevMonth.getMonth() - 1);
 
@@ -143,16 +149,19 @@ export default async function DashboardPage({
     { data: members },
     { data: org },
     rankingMessages,
+    { data: inboundByConversation },
+    { data: monthGoals },
+    { data: csatSurveys },
   ] = await Promise.all([
     supabase
       .from("pipeline_stages")
-      .select("id, name, position")
+      .select("id, name, position, is_won, is_lost")
       .eq("pipeline_id", pipelineId)
       .order("position", { ascending: true }),
     supabase
       .from("leads")
       .select(
-        "id, title, stage_id, value_cents, status, owner_id, lost_reason, temperature, stage_entered_at, created_at, updated_at",
+        "id, title, stage_id, contact_id, value_cents, status, owner_id, lost_reason, temperature, stage_entered_at, created_at, updated_at",
       )
       .eq("pipeline_id", pipelineId),
     supabase.from("contacts").select("id", { count: "exact", head: true }).eq("org_id", membership.orgId),
@@ -168,6 +177,22 @@ export default async function DashboardPage({
       membership.orgId,
       period === "month" ? startOfMonth.toISOString() : null,
     ),
+    supabase
+      .from("conversations")
+      .select("contact_id, last_inbound_at")
+      .eq("org_id", membership.orgId)
+      .not("last_inbound_at", "is", null),
+    supabase
+      .from("goals")
+      .select("id, user_id, target_won, target_value_cents")
+      .eq("org_id", membership.orgId)
+      .eq("month", monthKeyToDate(currentMonthKey)),
+    supabase
+      .from("csat_surveys")
+      .select("agent_id, status, rating, sent_at")
+      .eq("org_id", membership.orgId)
+      .in("status", ["sent", "answered"])
+      .gte("sent_at", period === "month" ? startOfMonth.toISOString() : "1970-01-01"),
   ]);
 
   const allLeads = leads ?? [];
@@ -212,6 +237,13 @@ export default async function DashboardPage({
     }),
   );
 
+  // Vendedor vê a meta da equipe e a própria; gestor pra cima vê todas.
+  const goalProgress = computeGoalProgress(monthGoals ?? [], allLeads, currentMonthKey, memberNameById).filter(
+    (g) => membership.role !== "agent" || g.userId === null || g.userId === membership.userId,
+  );
+
+  const csat = summarizeCsat(csatSurveys ?? [], memberNameById, inPeriod);
+
   const ranking = buildVendorRanking({
     messages: rankingMessages,
     leads: allLeads,
@@ -243,6 +275,28 @@ export default async function DashboardPage({
 
   const stageAlertDays = org?.stage_alert_days ?? 3;
   const stageNameById = new Map((stages ?? []).map((s) => [s.id, s.name]));
+
+  const { indexById, count: openStageCount } = openStageIndex(stages ?? []);
+  const lastInbound = lastInboundByContact(inboundByConversation ?? []);
+  const priorityLeads = openLeads
+    .map((lead) => ({
+      lead,
+      score: scoreLead({
+        status: lead.status,
+        temperature: lead.temperature,
+        valueCents: lead.value_cents,
+        stageIndex: indexById.get(lead.stage_id) ?? 0,
+        openStageCount,
+        daysInStage: daysSince(lead.stage_entered_at),
+        stageAlertDays,
+        lastInboundAt: lastInbound.get(lead.contact_id) ?? null,
+      }),
+    }))
+    .filter((item): item is { lead: (typeof openLeads)[number]; score: NonNullable<ReturnType<typeof scoreLead>> } =>
+      item.score !== null,
+    )
+    .sort((a, b) => b.score.score - a.score.score)
+    .slice(0, 5);
   const stuckLeads = openLeads
     .map((l) => ({ ...l, daysInStage: daysSince(l.stage_entered_at) }))
     .filter((l) => l.daysInStage >= stageAlertDays)
@@ -385,7 +439,7 @@ export default async function DashboardPage({
               <action.icon className="size-5 shrink-0" />
               <div className="flex flex-col leading-tight">
                 <span className="text-sm font-semibold">{action.label}</span>
-                <span className="text-xs opacity-70">{action.sub}</span>
+                <span className="text-xs opacity-80">{action.sub}</span>
               </div>
             </Link>
           ))}
@@ -445,6 +499,103 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {goalProgress.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="size-4 text-primary" />
+              Metas do mês
+            </CardTitle>
+            <CardDescription>Vendas ganhas no mês atual contra a meta definida.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <GoalProgressList items={goalProgress} />
+          </CardContent>
+        </Card>
+      )}
+
+      {csat.sent > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Satisfação dos clientes</CardTitle>
+            <CardDescription>
+              {period === "month" ? "Este mês" : "Todo o histórico"} — pesquisa de 1 a 5 enviada ao
+              resolver a conversa.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <p className="text-2xl font-bold">{csat.average ?? "—"}</p>
+                <p className="text-xs text-muted-foreground">nota média</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{csat.satisfiedPct === null ? "—" : `${csat.satisfiedPct}%`}</p>
+                <p className="text-xs text-muted-foreground">deram 4 ou 5</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{csat.answered}</p>
+                <p className="text-xs text-muted-foreground">respostas</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{csat.responseRate === null ? "—" : `${csat.responseRate}%`}</p>
+                <p className="text-xs text-muted-foreground">taxa de resposta</p>
+              </div>
+            </div>
+            {csat.byAgent.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                {csat.byAgent.map((agent) => (
+                  <div key={agent.agentId} className="flex items-center justify-between rounded-lg border px-3 py-1.5 text-sm">
+                    <span>{agent.name}</span>
+                    <span className="text-muted-foreground">
+                      ★ {agent.average} · {agent.answered} resposta{agent.answered === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {priorityLeads.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Flame className="size-4 text-primary" />
+              Atender primeiro
+            </CardTitle>
+            <CardDescription>
+              Leads em aberto com maior prioridade — temperatura, etapa, valor e se o cliente falou
+              recentemente. Passe o mouse na nota pra ver o porquê.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {priorityLeads.map(({ lead, score }) => (
+              <div key={lead.id} className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm">
+                <div className="flex flex-col">
+                  <span className="font-medium">{lead.title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {stageNameById.get(lead.stage_id) ?? "—"}
+                    {lead.owner_id ? ` · ${memberNameById.get(lead.owner_id) ?? "—"}` : " · sem responsável"}
+                  </span>
+                </div>
+                <Badge
+                  title={score.reasons.join(", ")}
+                  className={score.level === "alta" ? "bg-primary text-primary-foreground" : ""}
+                  variant={score.level === "alta" ? "default" : "secondary"}
+                >
+                  ★ {score.score}
+                </Badge>
+              </div>
+            ))}
+            <Button asChild variant="outline" size="sm" className="mt-1 self-start">
+              <Link href="/funil">Ver no funil</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

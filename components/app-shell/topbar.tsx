@@ -166,6 +166,9 @@ export function Topbar({
             <DropdownMenuLabel className="truncate">{userName}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
+              <Link href="/conta/seguranca">Segurança (2FA)</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
               <form action={signOut} className="w-full">
                 <button type="submit" className="w-full text-left">
                   Sair

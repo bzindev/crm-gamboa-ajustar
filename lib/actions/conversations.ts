@@ -63,9 +63,25 @@ export async function updateConversationStatus(
     after: { status: parsed.data.status },
   });
 
+  if (current && parsed.data.status === "resolved" && current.status !== "resolved") {
+    await queueCsatSurvey(supabase, parsed.data.conversationId);
+  }
+
   revalidatePath("/inbox");
   revalidatePath(`/inbox/${parsed.data.conversationId}`);
   return null;
+}
+
+/**
+ * Deixa a pesquisa "pendente" — quem envia é o worker (lib/whatsapp/
+ * csat-worker.ts), que tem o token do canal. A criação é uma função no
+ * banco (migration 0028): ela tira org/contato/vendedor da própria conversa
+ * e confere se está resolvida e com a pesquisa ligada — membro não grava
+ * direto em csat_surveys (nota é do cliente, não do vendedor).
+ */
+async function queueCsatSurvey(supabase: Awaited<ReturnType<typeof createClient>>, conversationId: string) {
+  const { error } = await supabase.rpc("fn_queue_csat_survey", { p_conversation_id: conversationId });
+  if (error) console.error("[conversations] fn_queue_csat_survey falhou:", error.code, error.message);
 }
 
 export async function claimConversation(

@@ -5,6 +5,7 @@ import { logAudit } from "@/lib/audit/log";
 import { sendTemplateMessage } from "@/lib/whatsapp/graph-client";
 import { mapGraphApiError } from "@/lib/whatsapp/errors";
 import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
+import { matchCsatAnswer, recordCsatAnswer } from "@/lib/whatsapp/csat-worker";
 
 const MAX_ATTEMPTS = 5;
 const MESSAGE_TYPES = new Set([
@@ -139,6 +140,7 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
 
   let conversationId = existingConversation?.id as string | undefined;
   let assignedTo: string | null = null;
+  let csatAnswer: Awaited<ReturnType<typeof matchCsatAnswer>> = null;
   const nowIso = new Date().toISOString();
 
   if (!conversationId) {
@@ -191,9 +193,13 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
       .maybeSingle();
     assignedTo = current?.assigned_to ?? null;
 
+    // Resposta de pesquisa de satisfação ("5") não reabre a conversa
+    // resolvida — só registra a nota.
+    csatAnswer = await matchCsatAnswer(supabase, { orgId, conversationId: conversationId!, wamid, text });
+
     await supabase
       .from("conversations")
-      .update({ last_inbound_at: nowIso, status: "open" })
+      .update(csatAnswer ? { last_inbound_at: nowIso } : { last_inbound_at: nowIso, status: "open" })
       .eq("id", conversationId);
   }
 
@@ -211,6 +217,15 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
   // idempotente, não é erro. Nesse caso não notifica de novo.
   if (messageError) {
     if (messageError.code !== "23505") throw new Error(messageError.message);
+    return;
+  }
+
+  // Nota da pesquisa: registra e não notifica ninguém ("Nova mensagem: 5"
+  // só seria barulho pro vendedor).
+  if (csatAnswer) {
+    if (!csatAnswer.alreadyRecorded) {
+      await recordCsatAnswer(supabase, { surveyId: csatAnswer.surveyId, rating: csatAnswer.rating, wamid });
+    }
     return;
   }
 
@@ -434,5 +449,20 @@ async function processStatusUpdate(supabase: AdminClient, orgId: string, payload
 
   if (!wamid || !validStatuses.has(status)) return;
 
-  await supabase.from("messages").update({ status }).eq("org_id", orgId).eq("wamid", wamid);
+  // A Meta não garante ordem: um "delivered" atrasado pode chegar depois do
+  // "read". Status só avança (enviado → entregue → lido); "failed" vale
+  // sempre, porque é definitivo.
+  const allowedPrevious: Record<string, string[]> = {
+    sent: ["received", "sent"],
+    delivered: ["received", "sent", "delivered"],
+    read: ["received", "sent", "delivered", "read"],
+    failed: ["received", "sent", "delivered", "read", "failed"],
+  };
+
+  await supabase
+    .from("messages")
+    .update({ status })
+    .eq("org_id", orgId)
+    .eq("wamid", wamid)
+    .in("status", allowedPrevious[status]);
 }

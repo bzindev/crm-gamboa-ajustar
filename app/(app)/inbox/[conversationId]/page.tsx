@@ -11,6 +11,7 @@ import { MessageForm } from "../message-form";
 import { StatusSelect } from "../status-select";
 import { ActiveConversationTracker } from "../active-conversation-tracker";
 import { TransferDialog } from "../transfer-dialog";
+import { ClaimButton } from "../claim-button";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -40,6 +41,12 @@ export default async function ConversationPage({
 
   const contact = one(conversation.contacts);
   const assignedProfile = one(conversation.profiles);
+
+  const { data: quickReplies } = await supabase
+    .from("quick_replies")
+    .select("id, title, body")
+    .eq("org_id", membership.orgId)
+    .order("title");
 
   const { data: members } = await supabase
     .from("org_members")
@@ -76,10 +83,10 @@ export default async function ConversationPage({
   // pode pegar uma conversa livre, mas tomar de outro vendedor é exclusivo
   // de gestor/admin (mesma regra de lib/actions/conversations.ts).
   const canClaim = !conversation.assigned_to || membership.role !== "agent";
-  // Mesma régua de quem pode "tomar de volta": vendedor repassa a própria
-  // conversa, gestor/admin repassa qualquer uma — mas só faz sentido depois
-  // que já tem alguém atendendo (repassar algo livre não é transferência).
-  const canTransfer = Boolean(conversation.assigned_to) && (isMine || membership.role !== "agent");
+  // Mesma régua de lib/actions/conversations.ts: vendedor repassa só a
+  // própria conversa; gestor/admin repassa qualquer uma — inclusive uma
+  // ainda sem dono, o que na prática é atribuir direto a alguém.
+  const canTransfer = isMine || membership.role !== "agent";
 
   return (
     <div className="flex h-full flex-col">
@@ -112,6 +119,7 @@ export default async function ConversationPage({
           ) : (
             <Badge variant="outline">Sem vendedor</Badge>
           )}
+          {!isMine && canClaim && <ClaimButton conversationId={conversation.id} />}
           {canTransfer && transferTargets.length > 0 && (
             <TransferDialog conversationId={conversation.id} targets={transferTargets} />
           )}
@@ -132,6 +140,8 @@ export default async function ConversationPage({
         readOnly={readOnly}
         canClaim={canClaim}
         outsideWindow={outsideWindow}
+        quickReplies={quickReplies ?? []}
+        contactName={contact?.name ?? null}
       />
     </div>
   );
