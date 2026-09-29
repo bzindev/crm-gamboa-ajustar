@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole, ForbiddenError } from "@/lib/auth/require-role";
 import { logAudit } from "@/lib/audit/log";
-import { createTemplateSchema } from "@/lib/validation/templates";
+import { createTemplateSchema, bodyHasVariable } from "@/lib/validation/templates";
 import { createMessageTemplate, getMessageTemplateStatus } from "@/lib/whatsapp/graph-client";
 import { mapGraphApiError } from "@/lib/whatsapp/errors";
 import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
@@ -49,11 +49,14 @@ export async function createTemplate(
     language: formData.get("language"),
     category: formData.get("category"),
     bodyText: formData.get("bodyText"),
-    hasVariable: formData.get("hasVariable") === "on",
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
+
+  // Detectado pelo próprio texto — antes dependia de uma caixinha que, se
+  // esquecida, fazia a Meta recusar o template.
+  const hasVariable = bodyHasVariable(parsed.data.bodyText);
 
   const supabase = await createClient();
   const channel = await getConnectedChannel(supabase, membership.orgId);
@@ -69,6 +72,7 @@ export async function createTemplate(
       language: parsed.data.language,
       category: parsed.data.category,
       bodyText: parsed.data.bodyText,
+      hasVariable,
     });
     metaTemplateId = result.id;
     metaStatus = result.status?.toLowerCase() ?? "pending";
@@ -84,7 +88,7 @@ export async function createTemplate(
       language: parsed.data.language,
       category: parsed.data.category,
       body_text: parsed.data.bodyText,
-      variable_count: parsed.data.hasVariable ? 1 : 0,
+      variable_count: hasVariable ? 1 : 0,
       meta_template_id: metaTemplateId,
       status: metaStatus === "approved" ? "approved" : metaStatus === "rejected" ? "rejected" : "pending",
       created_by: membership.userId,
