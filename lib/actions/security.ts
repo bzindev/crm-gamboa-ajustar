@@ -11,6 +11,20 @@ import { logAudit } from "@/lib/audit/log";
  * confere o estado real no servidor em vez de acreditar no que o cliente
  * diz que aconteceu.
  */
+/** Registro no histórico — a troca em si é feita no navegador, direto com o Supabase Auth. */
+export async function recordPasswordChange(): Promise<void> {
+  const membership = await getActiveOrgMembership();
+  if (!membership) return;
+  const supabase = await createClient();
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "security.password_changed",
+    resourceType: "profiles",
+    resourceId: membership.userId,
+  });
+}
+
 export async function recordMfaChange(kind: "enabled" | "disabled"): Promise<void> {
   const membership = await getActiveOrgMembership();
   if (!membership) return;

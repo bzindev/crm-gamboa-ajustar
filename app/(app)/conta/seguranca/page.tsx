@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MfaSettings } from "./mfa-settings";
+import { PasswordForm } from "./password-form";
 
 // Configuração pessoal (de cada usuário), não da organização — por isso
 // fica fora de /configuracoes e qualquer papel acessa.
@@ -15,6 +16,16 @@ export default async function SegurancaPage() {
         <h1 className="text-2xl font-bold">Segurança da conta</h1>
         <p className="text-muted-foreground">Configurações pessoais de acesso.</p>
       </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Trocar senha</CardTitle>
+          <CardDescription>Mínimo de 10 caracteres. Vale a partir do próximo login.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PasswordForm />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Verificação em duas etapas (2FA)</CardTitle>

@@ -15,6 +15,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { PresenceDot } from "@/components/presence/presence-dot";
 import { resolvePresenceStatus, PRESENCE_LABELS } from "@/lib/presence/status";
 import { InviteForm } from "./invite-form";
+import { CreateUserForm } from "./create-user-form";
+import { EditMemberDialog } from "./edit-member-dialog";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { TeamsSection } from "./teams-section";
 import { RemoveMemberButton } from "./remove-member-button";
 import { CancelInviteButton } from "./cancel-invite-button";
@@ -76,6 +79,22 @@ export default async function EquipePage() {
     member.user_id !== membership.userId &&
     member.role !== "owner" &&
     (member.role !== "admin" || membership.role === "owner");
+  // Mesma régua do servidor (lib/actions/users.ts) pra mostrar "Editar":
+  // a própria pessoa (só o nome) ou alguém de papel abaixo.
+  const canEdit = (member: MemberRow) => member.user_id === membership.userId || canRemove(member);
+
+  // E-mail é o login — mora no Auth, não em profiles. Página só de admin,
+  // e só dos membros desta organização.
+  const admin = createAdminClient();
+  const emails = new Map(
+    await Promise.all(
+      memberList.map(async (m) => {
+        const { data } = await admin.auth.admin.getUserById(m.user_id);
+        return [m.user_id, data.user?.email ?? null] as const;
+      }),
+    ),
+  );
+
   const memberOptions = memberList.map((m) => {
     const profile = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
     return { userId: m.user_id, name: profile?.full_name ?? "(sem nome)" };
@@ -109,6 +128,19 @@ export default async function EquipePage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Cadastrar usuário</CardTitle>
+          <CardDescription>
+            Cria o acesso direto com e-mail e senha — sem precisar de link de convite. Pra quem já tem
+            conta no sistema, use Convidar.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CreateUserForm />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Membros</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
@@ -133,9 +165,19 @@ export default async function EquipePage() {
                     className="absolute -right-0.5 -bottom-0.5"
                   />
                 </div>
-                <span className="flex-1">{name}</span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{name}</span>
+                  {emails.get(member.user_id) && (
+                    <span className="truncate text-xs text-muted-foreground">{emails.get(member.user_id)}</span>
+                  )}
+                </span>
                 <span className="text-xs text-muted-foreground">{PRESENCE_LABELS[status]}</span>
                 <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
+                {canEdit(member) ? (
+                  <EditMemberDialog userId={member.user_id} name={name} isSelf={member.user_id === membership.userId} />
+                ) : (
+                  <span className="w-[74px]" />
+                )}
                 {canRemove(member) ? (
                   <RemoveMemberButton userId={member.user_id} name={name} />
                 ) : (
