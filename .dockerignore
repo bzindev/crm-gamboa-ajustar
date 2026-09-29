@@ -1,0 +1,21 @@
+# Nada disso entra no contexto do build da imagem.
+node_modules
+.next
+.git
+.gitignore
+coverage
+tests
+tsconfig.tsbuildinfo
+npm-debug.log*
+
+# Segredos locais NUNCA vão pra imagem — no servidor, as variáveis vêm do
+# painel (EasyPanel → Environment).
+.env
+.env.*
+!.env.example
+
+# Docs e config de outras plataformas
+*.md
+vercel.json
+Dockerfile
+.dockerignore

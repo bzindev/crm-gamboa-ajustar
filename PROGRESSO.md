@@ -1,5 +1,23 @@
 # PROGRESSO
 
+## 2026-09-29 (continuação 2) — Docker pra VPS (EasyPanel)
+
+`Dockerfile` (node 24 alpine, 3 etapas, build `standalone`, usuário não
+root, healthcheck em /login), `.dockerignore` (sem `.env*`),
+`output: "standalone"` no `next.config.ts` e `scripts/start.mjs`, que sobe
+o `server.js` e substitui o Vercel Cron (fila a cada 1 min, backup 06:00
+UTC; `DISABLE_INTERNAL_CRON=1` desliga). Passo a passo em
+`DEPLOY-EASYPANEL.md`.
+
+- `NEXT_PUBLIC_*` entram como build args (são gravadas no JS no build) —
+  mudou alguma, precisa rebuild.
+- Validado localmente sem Docker (não há Docker na máquina): build
+  standalone rodando pelo `start.mjs` — login 200, estáticos 200, cron sem
+  segredo 401, webhook com token errado 403, rodada da fila sem erro.
+  O `docker build` em si ainda não foi executado.
+- Se a Vercel continuar ligada junto, a fila roda em dois lugares —
+  desligar os crons de lá.
+
 ## 2026-09-29 (continuação) — Filtros completos na lista de Conversas
 
 **Antes**: a lista inteira vinha pro navegador e era filtrada lá (status,
