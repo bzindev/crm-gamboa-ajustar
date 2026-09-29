@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { buildContactTimeline, type TimelineKind } from "@/lib/crm/contact-timeline";
+import { messagePreview } from "@/lib/inbox/message-preview";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { formatCents } from "@/lib/format/currency";
 import { Button } from "@/components/ui/button";
@@ -55,7 +56,7 @@ async function loadTimeline(
       conversationIds.length
         ? supabase
             .from("messages")
-            .select("direction, content, created_at, sent_by")
+            .select("direction, type, content, created_at, sent_by")
             .eq("org_id", orgId)
             .in("conversation_id", conversationIds)
             .order("created_at", { ascending: false })
@@ -80,7 +81,7 @@ async function loadTimeline(
     leads,
     messages: (messages ?? []).map((m) => ({
       direction: m.direction as "inbound" | "outbound",
-      body: (m.content as { body?: string } | null)?.body ?? null,
+      body: messagePreview(m.type, m.content),
       created_at: m.created_at,
       sent_by: m.sent_by,
     })),

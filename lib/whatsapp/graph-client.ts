@@ -65,6 +65,86 @@ export async function sendTextMessage(
   return { wamid };
 }
 
+/** POST /{phone-number-id}/messages genérico — devolve o wamid da mensagem enviada. */
+async function postMessage(phoneNumberId: string, accessToken: string, to: string, message: Record<string, unknown>) {
+  const response = await fetch(`${baseUrl()}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, ...message }),
+  });
+  if (!response.ok) {
+    await parseGraphError(response);
+  }
+  const data = (await response.json()) as { messages?: { id: string }[] };
+  const wamid = data.messages?.[0]?.id;
+  if (!wamid) {
+    throw new GraphApiError("A Meta não devolveu o id da mensagem enviada.");
+  }
+  return { wamid };
+}
+
+/**
+ * POST /{phone-number-id}/media — sobe o arquivo pra Meta e devolve o id
+ * de mídia usado no envio. Upload em vez de mandar um link público: o
+ * arquivo fica num bucket privado e nunca precisa ficar aberto na internet.
+ */
+export async function uploadMedia(phoneNumberId: string, accessToken: string, file: Blob, mimeType: string, fileName: string) {
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", mimeType);
+  form.append("file", new File([file], fileName, { type: mimeType }));
+  const response = await fetch(`${baseUrl()}/${phoneNumberId}/media`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!response.ok) {
+    await parseGraphError(response);
+  }
+  const data = (await response.json()) as { id?: string };
+  if (!data.id) throw new GraphApiError("A Meta não devolveu o id do arquivo enviado.");
+  return data.id;
+}
+
+/** Foto, vídeo, áudio ou documento já subido com uploadMedia. Áudio não tem legenda (regra da Meta). */
+export async function sendMediaMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  params: { kind: "image" | "video" | "audio" | "document"; mediaId: string; caption?: string; fileName?: string },
+) {
+  const media: Record<string, string> = { id: params.mediaId };
+  if (params.caption && params.kind !== "audio") media.caption = params.caption;
+  if (params.kind === "document" && params.fileName) media.filename = params.fileName;
+  return postMessage(phoneNumberId, accessToken, to, { type: params.kind, [params.kind]: media });
+}
+
+export async function sendLocationMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  location: { latitude: number; longitude: number; name?: string; address?: string },
+) {
+  return postMessage(phoneNumberId, accessToken, to, { type: "location", location });
+}
+
+/**
+ * Mídia recebida do cliente: GET /{media-id} devolve uma URL temporária
+ * (expira em minutos) que também exige o token — por isso o worker baixa
+ * na hora e guarda no Storage, em vez de guardar a URL.
+ */
+export async function downloadMedia(mediaId: string, accessToken: string) {
+  const info = await fetch(`${baseUrl()}/${mediaId}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!info.ok) {
+    await parseGraphError(info);
+  }
+  const meta = (await info.json()) as { url?: string; mime_type?: string; file_size?: number };
+  if (!meta.url) throw new GraphApiError("A Meta não devolveu o endereço do arquivo.");
+  const file = await fetch(meta.url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!file.ok) throw new GraphApiError(`Falha ao baixar o arquivo da Meta (${file.status}).`);
+  return { data: await file.arrayBuffer(), mimeType: meta.mime_type ?? file.headers.get("content-type") ?? "application/octet-stream" };
+}
+
 /**
  * POST /{phone-number-id}/messages com type "template" — o único jeito de
  * iniciar conversa fora da janela de 24h. `bodyParams` preenche as
@@ -126,8 +206,13 @@ export async function sendTemplateMessage(
 export async function createMessageTemplate(
   wabaId: string,
   accessToken: string,
-  params: { name: string; language: string; category: string; bodyText: string },
+  params: { name: string; language: string; category: string; bodyText: string; hasVariable?: boolean },
 ) {
+  // Com {{1}} no texto, a Meta exige um exemplo de preenchimento pra
+  // aprovar — sem ele, recusa o template na hora.
+  const body = params.hasVariable
+    ? { type: "BODY", text: params.bodyText, example: { body_text: [["Maria"]] } }
+    : { type: "BODY", text: params.bodyText };
   const response = await fetch(`${baseUrl()}/${wabaId}/message_templates`, {
     method: "POST",
     headers: {
@@ -138,7 +223,7 @@ export async function createMessageTemplate(
       name: params.name,
       language: params.language,
       category: params.category,
-      components: [{ type: "BODY", text: params.bodyText }],
+      components: [body],
     }),
   });
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getActiveOrgMembership } from "@/lib/auth/session";
 import { isWithin24hWindow } from "@/lib/whatsapp/window";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,6 +13,8 @@ import { StatusSelect } from "../status-select";
 import { ActiveConversationTracker } from "../active-conversation-tracker";
 import { TransferDialog } from "../transfer-dialog";
 import { ClaimButton } from "../claim-button";
+import { ConversationLabels } from "../conversation-labels";
+import type { Temperature } from "@/lib/crm/temperature";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -31,7 +34,7 @@ export default async function ConversationPage({
   const { data: conversation } = await supabase
     .from("conversations")
     .select(
-      "id, status, last_inbound_at, contact_id, assigned_to, contacts(id, name, phone_e164, opted_in), profiles(full_name)",
+      "id, status, temperature, last_inbound_at, contact_id, assigned_to, contacts(id, name, phone_e164, opted_in), profiles(full_name)",
     )
     .eq("id", conversationId)
     .eq("org_id", membership.orgId)
@@ -39,8 +42,26 @@ export default async function ConversationPage({
 
   if (!conversation) notFound();
 
+  // Vendedor comum vê só as próprias conversas e a fila (mesma regra da
+  // lista, que está em fn_search_conversations) — inclusive abrindo pelo link.
+  if (membership.role === "agent" && conversation.assigned_to && conversation.assigned_to !== membership.userId) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+        <p className="text-sm font-medium">Essa conversa está com outro vendedor.</p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          Peça a um gestor para transferir se precisar assumir o atendimento.
+        </p>
+      </div>
+    );
+  }
+
   const contact = one(conversation.contacts);
   const assignedProfile = one(conversation.profiles);
+
+  const [{ data: orgTags }, { data: conversationTags }] = await Promise.all([
+    supabase.from("tags").select("id, name, color").eq("org_id", membership.orgId).order("name"),
+    supabase.from("conversation_tags").select("tag_id").eq("org_id", membership.orgId).eq("conversation_id", conversationId),
+  ]);
 
   const { data: quickReplies } = await supabase
     .from("quick_replies")
@@ -64,15 +85,44 @@ export default async function ConversationPage({
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true });
 
+  type StoredContent = {
+    body?: string | null;
+    media?: { path?: string; mime?: string; filename?: string; size?: number; unavailable?: boolean } | null;
+    location?: { latitude: number; longitude: number; name?: string | null; address?: string | null } | null;
+  } | null;
+
+  // Link temporário (1h) pra ver cada arquivo — o bucket é privado. Só
+  // assina caminho desta organização E desta conversa (defesa extra: o
+  // caminho está no banco, mas não custa não confiar nele cegamente).
+  const mediaPrefix = `${membership.orgId}/${conversation.id}/`;
+  const mediaPaths = (messagesData ?? [])
+    .map((m) => (m.content as StoredContent)?.media?.path)
+    .filter((path): path is string => Boolean(path?.startsWith(mediaPrefix)));
+  const signedUrlByPath = new Map<string, string>();
+  if (mediaPaths.length) {
+    const { data: signed } = await createAdminClient().storage.from("chat-media").createSignedUrls(mediaPaths, 3600);
+    for (const item of signed ?? []) if (item.path && item.signedUrl) signedUrlByPath.set(item.path, item.signedUrl);
+  }
+
   const messages: MessageItem[] = (messagesData ?? []).map((m) => {
-    const content = m.content as { body?: string } | null;
+    const content = m.content as StoredContent;
+    const media = content?.media;
     return {
       id: m.id,
       direction: m.direction,
       type: m.type,
-      body: content?.body ?? `[${m.type}]`,
+      body: content?.body ?? (media || content?.location ? "" : `[${m.type}]`),
       status: m.status,
       createdAt: m.created_at,
+      media: media
+        ? {
+            url: media.path ? (signedUrlByPath.get(media.path) ?? null) : null,
+            mime: media.mime ?? "",
+            filename: media.filename ?? "arquivo",
+            size: media.size ?? null,
+          }
+        : null,
+      location: content?.location ?? null,
     };
   });
 
@@ -126,6 +176,13 @@ export default async function ConversationPage({
           <StatusSelect conversationId={conversation.id} status={conversation.status} />
         </div>
       </div>
+
+      <ConversationLabels
+        conversationId={conversation.id}
+        temperature={conversation.temperature as Temperature | null}
+        allTags={orgTags ?? []}
+        selectedTagIds={(conversationTags ?? []).map((t) => t.tag_id)}
+      />
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-4">
         {messages.length === 0 ? (

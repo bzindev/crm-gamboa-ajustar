@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { messagePreview } from "@/lib/inbox/message-preview";
 
 export type LastMessageInfo = {
   preview: string;
@@ -26,9 +27,8 @@ export async function fetchLastMessageByConversation(
   const lastMessageByConversation = new Map<string, LastMessageInfo>();
   for (const message of recentMessages ?? []) {
     if (lastMessageByConversation.has(message.conversation_id)) continue;
-    const content = message.content as { body?: string } | null;
     lastMessageByConversation.set(message.conversation_id, {
-      preview: content?.body ?? `[${message.type}]`,
+      preview: messagePreview(message.type, message.content),
       createdAt: message.created_at,
       direction: message.direction,
     });

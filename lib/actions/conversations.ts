@@ -7,6 +7,8 @@ import { getActiveOrgMembership } from "@/lib/auth/session";
 import { logAudit } from "@/lib/audit/log";
 import { createNotification } from "@/lib/notifications/create";
 import { updateConversationStatusSchema } from "@/lib/validation/conversations";
+import { z } from "zod";
+import { colorForTag } from "@/lib/crm/temperature";
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -280,4 +282,212 @@ export async function markConversationRead(conversationId: string): Promise<void
     .eq("id", conversationId)
     .eq("org_id", membership.orgId)
     .eq("assigned_to", membership.userId);
+}
+
+// ---------------------------------------------------------------------------
+// Temperatura e etiquetas da conversa. Qualquer membro da organização pode
+// marcar — é organização do trabalho, não muda quem atende.
+// ---------------------------------------------------------------------------
+
+export type LabelActionResult = { error?: string };
+
+async function conversationInOrg(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  conversationId: string,
+  orgId: string,
+) {
+  const { data } = await supabase
+    .from("conversations")
+    .select("id, temperature")
+    .eq("id", conversationId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+  return data;
+}
+
+const temperatureInput = z.object({
+  conversationId: z.string().uuid(),
+  temperature: z.enum(["hot", "warm", "cold"]).nullable(),
+});
+
+export async function setConversationTemperature(
+  input: z.input<typeof temperatureInput>,
+): Promise<LabelActionResult> {
+  let membership;
+  try {
+    membership = await requireRole("agent");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+  const parsed = temperatureInput.safeParse(input);
+  if (!parsed.success) return { error: "Dados inválidos." };
+
+  const supabase = await createClient();
+  const current = await conversationInOrg(supabase, parsed.data.conversationId, membership.orgId);
+  if (!current) return { error: "Conversa não encontrada." };
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ temperature: parsed.data.temperature })
+    .eq("id", parsed.data.conversationId)
+    .eq("org_id", membership.orgId);
+  if (error) {
+    console.error("[conversations] setConversationTemperature falhou:", error.code, error.message);
+    return { error: "Não foi possível salvar." };
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "conversation.temperature_changed",
+    resourceType: "conversations",
+    resourceId: parsed.data.conversationId,
+    before: { temperature: current.temperature },
+    after: { temperature: parsed.data.temperature },
+  });
+
+  revalidatePath("/inbox", "layout");
+  return {};
+}
+
+const tagsInput = z.object({
+  conversationId: z.string().uuid(),
+  tagIds: z.array(z.string().uuid()).max(30),
+});
+
+/** Substitui o conjunto de etiquetas da conversa pelo que veio (lista pequena — não compensa diff fino). */
+export async function setConversationTags(input: z.input<typeof tagsInput>): Promise<LabelActionResult> {
+  let membership;
+  try {
+    membership = await requireRole("agent");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+  const parsed = tagsInput.safeParse(input);
+  if (!parsed.success) return { error: "Dados inválidos." };
+
+  const supabase = await createClient();
+  if (!(await conversationInOrg(supabase, parsed.data.conversationId, membership.orgId))) {
+    return { error: "Conversa não encontrada." };
+  }
+
+  // Só etiqueta desta organização — nunca confia na lista que veio do cliente.
+  const wanted = [...new Set(parsed.data.tagIds)];
+  const { data: validTags } = wanted.length
+    ? await supabase.from("tags").select("id").eq("org_id", membership.orgId).in("id", wanted)
+    : { data: [] as { id: string }[] };
+  const validIds = (validTags ?? []).map((t) => t.id);
+
+  const { data: before } = await supabase
+    .from("conversation_tags")
+    .select("tag_id")
+    .eq("org_id", membership.orgId)
+    .eq("conversation_id", parsed.data.conversationId);
+
+  await supabase
+    .from("conversation_tags")
+    .delete()
+    .eq("org_id", membership.orgId)
+    .eq("conversation_id", parsed.data.conversationId);
+  if (validIds.length) {
+    const { error } = await supabase.from("conversation_tags").insert(
+      validIds.map((tagId) => ({
+        org_id: membership.orgId,
+        conversation_id: parsed.data.conversationId,
+        tag_id: tagId,
+      })),
+    );
+    if (error) {
+      console.error("[conversations] setConversationTags falhou:", error.code, error.message);
+      return { error: "Não foi possível salvar as etiquetas." };
+    }
+  }
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "conversation.tags_changed",
+    resourceType: "conversations",
+    resourceId: parsed.data.conversationId,
+    before: { tag_ids: (before ?? []).map((t) => t.tag_id) },
+    after: { tag_ids: validIds },
+  });
+
+  revalidatePath("/inbox", "layout");
+  return {};
+}
+
+const newTagInput = z.object({
+  conversationId: z.string().uuid(),
+  name: z.string().trim().min(1, "Dê um nome à etiqueta.").max(40, "Nome muito longo."),
+});
+
+/** Cria a etiqueta (ou reaproveita uma com o mesmo nome) e já coloca na conversa. */
+export async function addNewTagToConversation(input: z.input<typeof newTagInput>): Promise<LabelActionResult> {
+  let membership;
+  try {
+    membership = await requireRole("agent");
+  } catch (err) {
+    return { error: err instanceof ForbiddenError ? err.message : "Erro inesperado." };
+  }
+  const parsed = newTagInput.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+
+  const supabase = await createClient();
+  if (!(await conversationInOrg(supabase, parsed.data.conversationId, membership.orgId))) {
+    return { error: "Conversa não encontrada." };
+  }
+
+  // Mesmo nome sem diferenciar maiúscula ("vip" = "VIP") — reaproveita em
+  // vez de duplicar. %, _ e \ escapados: o nome vira texto literal no ILIKE.
+  const { data: existing } = await supabase
+    .from("tags")
+    .select("id")
+    .eq("org_id", membership.orgId)
+    .ilike("name", parsed.data.name.replace(/[\\%_]/g, "\\$&"))
+    .limit(1)
+    .maybeSingle();
+
+  let tagId = existing?.id as string | undefined;
+  if (!tagId) {
+    const { data: created, error } = await supabase
+      .from("tags")
+      .insert({ org_id: membership.orgId, name: parsed.data.name, color: colorForTag(parsed.data.name) })
+      .select("id")
+      .single();
+    if (error || !created) {
+      console.error("[conversations] criar etiqueta falhou:", error?.code, error?.message);
+      return { error: "Não foi possível criar a etiqueta." };
+    }
+    tagId = created.id;
+    await logAudit(supabase, {
+      orgId: membership.orgId,
+      actorId: membership.userId,
+      action: "tag.created",
+      resourceType: "tags",
+      resourceId: tagId,
+      after: { name: parsed.data.name },
+    });
+  }
+
+  const { error: linkError } = await supabase
+    .from("conversation_tags")
+    .upsert(
+      { org_id: membership.orgId, conversation_id: parsed.data.conversationId, tag_id: tagId },
+      { onConflict: "conversation_id,tag_id" },
+    );
+  if (linkError) return { error: "Não foi possível adicionar a etiqueta." };
+
+  await logAudit(supabase, {
+    orgId: membership.orgId,
+    actorId: membership.userId,
+    action: "conversation.tags_changed",
+    resourceType: "conversations",
+    resourceId: parsed.data.conversationId,
+    after: { added_tag_id: tagId },
+  });
+
+  revalidatePath("/inbox", "layout");
+  revalidatePath("/funil");
+  return {};
 }

@@ -88,6 +88,32 @@ async function enqueueInboundMessage(
 ) {
   const contactName = contacts?.find((c) => c.wa_id === message.from)?.profile?.name ?? null;
 
+  // Foto/vídeo/áudio/documento/figurinha: a Meta manda só o id do arquivo
+  // (o worker baixa depois). Localização vem inteira. Formato conferido
+  // campo a campo — o resto do payload não é confiado.
+  const raw = message as Record<string, unknown>;
+  const mediaTypes = ["image", "video", "audio", "document", "sticker"];
+  const mediaObj = mediaTypes.includes(message.type) ? (raw[message.type] as Record<string, unknown> | undefined) : undefined;
+  const media =
+    mediaObj && typeof mediaObj.id === "string"
+      ? {
+          id: mediaObj.id,
+          mime_type: typeof mediaObj.mime_type === "string" ? mediaObj.mime_type : null,
+          caption: typeof mediaObj.caption === "string" ? mediaObj.caption : null,
+          filename: typeof mediaObj.filename === "string" ? mediaObj.filename : null,
+        }
+      : null;
+  const loc = message.type === "location" ? (raw.location as Record<string, unknown> | undefined) : undefined;
+  const location =
+    loc && typeof loc.latitude === "number" && typeof loc.longitude === "number"
+      ? {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          name: typeof loc.name === "string" ? loc.name : null,
+          address: typeof loc.address === "string" ? loc.address : null,
+        }
+      : null;
+
   const { error } = await supabase.from("event_log").insert({
     org_id: orgId,
     type: "whatsapp_inbound_message",
@@ -97,7 +123,9 @@ async function enqueueInboundMessage(
       contact_name: contactName,
       wamid: message.id,
       message_type: message.type,
-      text: message.text?.body ?? null,
+      text: message.text?.body ?? media?.caption ?? null,
+      media,
+      location,
       timestamp: message.timestamp,
     },
     dedupe_key: `whatsapp_inbound:${message.id}`,

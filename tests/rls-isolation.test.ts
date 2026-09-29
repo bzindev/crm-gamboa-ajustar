@@ -119,6 +119,7 @@ describe.skipIf(!hasCredentials)("isolamento entre organizações (RLS)", () => 
     const conversation = await insert("conversations", {
       org_id: orgId, contact_id: contact.id, channel_id: channel.id,
     });
+    await admin.from("conversation_tags").insert({ org_id: orgId, conversation_id: conversation.id, tag_id: tag.id }).throwOnError();
     await insert("messages", {
       org_id: orgId, conversation_id: conversation.id, direction: "inbound", type: "text", status: "received",
     });
@@ -206,7 +207,7 @@ describe.skipIf(!hasCredentials)("isolamento entre organizações (RLS)", () => 
   });
 
   const TENANT_TABLES = [
-    "audit_log", "bulk_campaign_recipients", "bulk_campaigns", "channels", "consents", "contacts",
+    "audit_log", "bulk_campaign_recipients", "bulk_campaigns", "channels", "consents", "contacts", "conversation_tags",
     "conversations", "event_log", "lead_tags", "leads", "message_templates", "messages",
     "notifications", "org_invites", "pipeline_stages", "pipelines", "tags", "team_members",
     "teams", "webhook_deliveries",

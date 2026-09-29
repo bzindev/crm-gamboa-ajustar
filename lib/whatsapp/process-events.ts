@@ -6,6 +6,9 @@ import { sendTemplateMessage } from "@/lib/whatsapp/graph-client";
 import { mapGraphApiError } from "@/lib/whatsapp/errors";
 import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
 import { matchCsatAnswer, recordCsatAnswer } from "@/lib/whatsapp/csat-worker";
+import { downloadMedia } from "@/lib/whatsapp/graph-client";
+import { safeFileName } from "@/lib/whatsapp/media-rules";
+import { createHash } from "node:crypto";
 
 const MAX_ATTEMPTS = 5;
 const MESSAGE_TYPES = new Set([
@@ -96,7 +99,8 @@ async function markFailed(supabase: AdminClient, eventId: string, attempts: numb
     .eq("id", eventId);
 }
 
-async function processInboundMessage(supabase: AdminClient, orgId: string, payload: Record<string, unknown>) {
+/** Exportada só pra teste (tests/inbound-media.test.ts) chamar sem passar pela fila, que o cron também drena. */
+export async function processInboundMessage(supabase: AdminClient, orgId: string, payload: Record<string, unknown>) {
   const channelId = String(payload.channel_id ?? "");
   const waId = String(payload.wa_id ?? "");
   const wamid = String(payload.wamid ?? "");
@@ -203,13 +207,24 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
       .eq("id", conversationId);
   }
 
+  const content = await buildInboundContent(supabase, {
+    orgId,
+    channelId,
+    conversationId: conversationId!,
+    wamid,
+    messageType,
+    text,
+    media: payload.media as InboundMedia | null | undefined,
+    location: payload.location as Record<string, unknown> | null | undefined,
+  });
+
   const { error: messageError } = await supabase.from("messages").insert({
     org_id: orgId,
     conversation_id: conversationId,
     wamid,
     direction: "inbound",
     type: MESSAGE_TYPES.has(messageType) ? messageType : "text",
-    content: text ? { body: text } : null,
+    content,
     status: "received",
   });
 
@@ -233,9 +248,9 @@ async function processInboundMessage(supabase: AdminClient, orgId: string, paylo
   if (assignedTo) {
     // Conversa já tem dono (rodízio ou "assumir conversa" manual): só
     // avisa quem é responsável, não o time inteiro.
-    await notifyOne(supabase, orgId, assignedTo, conversationId!, finalContactName, text);
+    await notifyOne(supabase, orgId, assignedTo, conversationId!, finalContactName, text ?? MEDIA_PREVIEW[messageType] ?? null);
   } else {
-    await notifyAllAgents(supabase, orgId, conversationId!, finalContactName, text);
+    await notifyAllAgents(supabase, orgId, conversationId!, finalContactName, text ?? MEDIA_PREVIEW[messageType] ?? null);
   }
 }
 
@@ -465,4 +480,86 @@ async function processStatusUpdate(supabase: AdminClient, orgId: string, payload
     .eq("org_id", orgId)
     .eq("wamid", wamid)
     .in("status", allowedPrevious[status]);
+}
+
+// ---------------------------------------------------------------------------
+// Mídia recebida
+// ---------------------------------------------------------------------------
+
+type InboundMedia = { id: string; mime_type: string | null; caption: string | null; filename: string | null };
+
+const MEDIA_PREVIEW: Record<string, string> = {
+  image: "📷 Foto",
+  video: "🎥 Vídeo",
+  audio: "🎤 Áudio",
+  document: "📄 Documento",
+  sticker: "Figurinha",
+  location: "📍 Localização",
+};
+
+const EXTENSION: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "video/mp4": "mp4",
+  "video/3gpp": "3gp",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/amr": "amr",
+  "application/pdf": "pdf",
+};
+
+/**
+ * Monta o conteúdo da mensagem recebida. Mídia: baixa da Meta na hora (a
+ * URL que ela dá expira em minutos) e guarda no bucket privado. Caminho
+ * derivado do wamid, com upsert — se o worker reprocessar a mesma
+ * mensagem, sobrescreve o mesmo arquivo em vez de duplicar. Se o download
+ * falhar, a mensagem entra do mesmo jeito marcada como indisponível: não
+ * vale travar a fila (e perder o texto/legenda) por causa do arquivo.
+ */
+async function buildInboundContent(
+  supabase: AdminClient,
+  params: {
+    orgId: string;
+    channelId: string;
+    conversationId: string;
+    wamid: string;
+    messageType: string;
+    text: string | null;
+    media: InboundMedia | null | undefined;
+    location: Record<string, unknown> | null | undefined;
+  },
+): Promise<Record<string, unknown> | null> {
+  if (params.location) return { body: null, location: params.location };
+  if (!params.media) return params.text ? { body: params.text } : null;
+
+  const mime = (params.media.mime_type ?? "application/octet-stream").split(";")[0].trim();
+  const fallbackName = `${params.messageType}.${EXTENSION[mime] ?? "bin"}`;
+  const filename = safeFileName(params.media.filename ?? fallbackName);
+  const base = { body: params.media.caption ?? null };
+
+  try {
+    const { data: channel } = await supabase
+      .from("channels")
+      .select("access_token_encrypted")
+      .eq("id", params.channelId)
+      .eq("org_id", params.orgId)
+      .single();
+    if (!channel?.access_token_encrypted) throw new Error("canal sem token");
+
+    const file = await downloadMedia(params.media.id, decryptToken(pgByteaToBuffer(channel.access_token_encrypted)));
+    const folder = createHash("sha256").update(params.wamid).digest("hex").slice(0, 24);
+    const path = `${params.orgId}/${params.conversationId}/in-${folder}/${filename}`;
+    const { error } = await supabase.storage
+      .from("chat-media")
+      .upload(path, file.data, { contentType: file.mimeType, upsert: true });
+    if (error) throw new Error(error.message);
+
+    return { ...base, media: { path, mime: file.mimeType, filename, size: file.data.byteLength } };
+  } catch (err) {
+    console.error("[worker] falha ao baixar mídia recebida:", err instanceof Error ? err.message : err);
+    return { ...base, media: { mime, filename, unavailable: true } };
+  }
 }

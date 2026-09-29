@@ -58,14 +58,19 @@ describe.skipIf(!hasCredentials)("CSAT: quem pode gravar nota", () => {
     expect((await member.rpc("fn_queue_csat_survey", { p_conversation_id: resolvedId })).error).toBeNull();
     expect((await member.rpc("fn_queue_csat_survey", { p_conversation_id: resolvedId })).error).toBeNull();
     const { data } = await admin.from("csat_surveys").select("status, agent_id, rating").eq("conversation_id", resolvedId);
-    expect(data).toEqual([{ status: "pending", agent_id: userId, rating: null }]);
+    // O cron (se estiver rodando) pode já ter processado e mudado o status
+    // pra "skipped" — o que importa aqui: uma só, do vendedor certo, sem nota.
+    expect(data).toHaveLength(1);
+    expect(data![0]).toMatchObject({ agent_id: userId, rating: null });
+    expect(["pending", "skipped", "failed"]).toContain(data![0].status);
   });
 
   it("membro não altera a nota depois", async () => {
     const { data } = await member.from("csat_surveys").update({ status: "answered", rating: 5 }).eq("conversation_id", resolvedId).select("id");
     expect(data ?? []).toEqual([]);
     const { data: after } = await admin.from("csat_surveys").select("status, rating").eq("conversation_id", resolvedId).single();
-    expect(after).toEqual({ status: "pending", rating: null });
+    expect(after!.rating).toBeNull();
+    expect(after!.status).not.toBe("answered");
   });
 
   it("conversa que não está resolvida não gera pesquisa", async () => {

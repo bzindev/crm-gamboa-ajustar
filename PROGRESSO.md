@@ -1,5 +1,100 @@
 # PROGRESSO
 
+## 2026-09-29 (continuação) — Filtros completos na lista de Conversas
+
+**Antes**: a lista inteira vinha pro navegador e era filtrada lá (status,
+uma temperatura, uma etiqueta, um vendedor); etiqueta/vendedor só
+apareciam se já houvesse conversa carregada com eles. Nada ia pra URL.
+
+**Agora** (`0031`, `fn_search_conversations`): filtro feito no banco,
+paginado (50 por vez, "Carregar mais"), tudo na URL:
+- busca por nome/telefone (`q`), abas de status com contagem
+  (Todas/Abertas/Pendentes/Resolvidas/Fechadas — `resolved` e `closed`
+  são status diferentes: só `resolved` dispara CSAT);
+- temperatura (várias + "sem temperatura"), etiquetas (várias, busca,
+  "qualquer uma"/"todas"), vendedor (várias pessoas + "Comigo" + "Sem
+  responsável"), período (última mensagem / criação / resolução ×
+  Hoje, Ontem, 7 e 30 dias, este mês, mês passado, personalizado — no
+  horário de Brasília), etapa do funil, setor, não lidas, aguardando
+  resposta;
+- contador "N conversas", "Limpar filtros", vazio específico, opções dos
+  seletores vindas de `GET /api/inbox/filter-options`;
+- tempo real: um evento refaz a MESMA busca — conversa que não bate com o
+  filtro não entra na lista.
+
+**Regra nova de visibilidade**: vendedor comum (agent) vê só as próprias
+conversas + a fila, na lista (dentro da função do banco — editar a URL
+não adianta) e ao abrir a conversa pelo link. Gestor/admin/dono veem tudo.
+
+**`resolved_at`** novo em `conversations`, mantido por trigger (vale pra
+tela, Kanban e worker); as já encerradas foram preenchidas pelo histórico.
+
+**Limitações / armadilhas**:
+- busca de texto só em nome/telefone do contato (conteúdo de mensagem
+  ficaria pesado com volume real);
+- etapa do funil é pelo CONTATO (`leads.conversation_id` nunca é
+  preenchido pelo código);
+- "não lida" é relativa ao responsável (`last_read_at` não é por usuário);
+- a restrição do vendedor é da aplicação (função + página), não da RLS:
+  a RLS de `conversations`/`messages` continua por organização. Levar pra
+  RLS quebraria transferência (a linha "sai" da visão de quem transfere);
+- página do contato ainda mostra o histórico de conversas pra qualquer
+  membro da organização.
+
+Testes: `tests/inbox-filters.test.ts` (URL e períodos) e
+`tests/inbox-search.test.ts` (banco real: cada filtro, combinações, E/OU,
+limites do dia, vendedor manipulando URL, paginação, link recarregado).
+
+## 2026-09-29 — Mídia no chat, etiquetas nas conversas e correção de templates
+
+**Templates**: formulário perdia o que foi digitado quando dava erro
+(campos "soltos" são limpos pelo React depois de enviar) — agora
+controlados. Nome técnico convertido enquanto digita ("Promoção Setembro" →
+`promocao_setembro`). `{{1}}` detectado pelo texto (sem caixinha). Dois bugs
+que fariam a Meta recusar: faltava o `example` obrigatório quando o texto
+tem variável, e variável no começo/fim do texto (a Meta não aceita) — agora
+avisa antes. Prévia com "Maria".
+
+**Mídia no chat** (`0029`, bucket privado `chat-media`): enviar foto
+(JPG/PNG 5 MB), vídeo (MP4 16 MB), áudio (16 MB), documento (PDF/Office até
+50 MB) e localização (link do Google Maps, coordenadas ou "minha
+localização"). Ctrl+V cola imagem. O arquivo sobe do navegador DIRETO pro
+Storage por link assinado de uso único (evita o limite de ~4,5 MB por
+requisição da Vercel e de 1 MB das Server Actions); o servidor confere que o
+caminho é daquela organização/conversa, baixa e sobe pra Meta. Mídia
+RECEBIDA: o worker baixa da Meta (URL expira em minutos) e guarda no bucket;
+se falhar, a mensagem entra como "arquivo indisponível" em vez de travar a
+fila. Chat mostra foto, vídeo, player de áudio, cartão de documento e
+localização com "abrir no mapa" (links temporários de 1h). Prévia da lista
+e da linha do tempo: "📷 Foto", "📄 proposta.pdf", "📍 Loja".
+Envio real pra Meta NÃO foi testado (depende do webhook/número); upload,
+privacidade do bucket e recebimento foram testados contra o banco real.
+
+**Etiquetas nas conversas** (`0030`): temperatura (🔥 Quente, 🌤 Morno,
+❄️ Frio) e etiquetas livres no topo da conversa — reaproveita as `tags` do
+Funil (mesmo vocabulário), cria etiqueta nova na hora. Aparecem na lista e
+no Kanban do Inbox, com filtro por temperatura e por etiqueta; atualiza ao
+vivo (`conversation_tags` na publicação do Realtime) e vai pro histórico.
+
+**Outros**: iniciais do avatar ignoram pontuação ("(teste)" dava "C(");
+barra de rolagem das abas de status escondida; testes de CSAT e mídia não
+dependem mais do horário do cron local (corrida que deixava o teste
+instável).
+
+**Senhas e usuários** (Configurações → Equipe, só admin/dono):
+- "Cadastrar usuário": nome, e-mail, papel e senha (botão "Gerar") — a conta
+  já nasce dentro da organização, sem convite. Só pra e-mail SEM conta; se
+  já existe, manda usar "Convidar" (não mexe na conta dos outros).
+- "Editar" em cada membro: nome + "Nova senha (opcional)" (em branco =
+  mantém). Travas: ninguém edita o dono; outro admin só o dono edita; quem
+  também é de OUTRA organização não pode ser alterado por aqui (nome/senha
+  são da conta, mudaria lá também); a própria senha é em Conta → Segurança
+  (novo card "Trocar senha").
+- Senha mínima agora 10 caracteres. Histórico registra só que a senha foi
+  trocada, nunca a senha. E-mail de login aparece embaixo do nome.
+- Testado contra banco/Auth reais (`tests/users-admin.test.ts`): senha nova
+  entra e antiga não, cada trava, cadastro e e-mail já existente.
+
 ## 2026-09-28 (continuação 3) — Enter pra enviar + contraste
 
 - Chat: Enter envia, Shift+Enter pula linha (ignora Enter enquanto o

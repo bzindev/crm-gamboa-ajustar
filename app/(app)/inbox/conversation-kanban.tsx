@@ -22,7 +22,14 @@ import { getInitials } from "@/lib/format/initials";
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import { updateConversationStatus } from "@/lib/actions/conversations";
 import { cn } from "@/lib/utils";
-import type { ConversationSummary } from "./conversation-list";
+import { Button } from "@/components/ui/button";
+import {
+  EmptyResults,
+  type ConversationResultsProps,
+  type ConversationSummary,
+} from "./conversation-list";
+import { tagChipStyle } from "./conversation-labels";
+import { TEMPERATURE_BY_VALUE } from "@/lib/crm/temperature";
 
 type Status = ConversationSummary["status"];
 
@@ -33,7 +40,11 @@ const COLUMNS: { id: Status; label: string }[] = [
   { id: "closed", label: "Fechada" },
 ];
 
-function ConversationCardView({ conversation }: { conversation: ConversationSummary }) {
+function ConversationCardView({
+  conversation,
+}: {
+  conversation: ConversationSummary;
+}) {
   return (
     <div className="flex cursor-pointer flex-col gap-1.5 rounded-md border bg-background p-3 text-sm shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-center gap-2">
@@ -47,6 +58,29 @@ function ConversationCardView({ conversation }: { conversation: ConversationSumm
       <p className="truncate text-xs text-muted-foreground">
         {conversation.lastMessagePreview ?? conversation.contactPhone}
       </p>
+      {(conversation.temperature || conversation.tags.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1">
+          {conversation.temperature && (
+            <span
+              className={cn(
+                "rounded-full border px-1.5 text-[10px] font-medium",
+                TEMPERATURE_BY_VALUE[conversation.temperature].className,
+              )}
+            >
+              {TEMPERATURE_BY_VALUE[conversation.temperature].label}
+            </span>
+          )}
+          {conversation.tags.slice(0, 3).map((tag) => (
+            <span
+              key={tag.id}
+              className="rounded-full border px-1.5 text-[10px] font-medium"
+              style={tagChipStyle(tag.color)}
+            >
+              {tag.name}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <Badge variant="outline" className="text-[10px]">
           {conversation.assignedToMe
@@ -70,9 +104,10 @@ function DraggableCard({
   conversation: ConversationSummary;
   onOpen: (id: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: conversation.id,
-  });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: conversation.id,
+    });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -115,18 +150,26 @@ function Column({
     >
       <div className="flex items-center justify-between px-1">
         <h2 className="text-sm font-semibold">{label}</h2>
-        <span className="text-xs text-muted-foreground">{conversations.length}</span>
+        <span className="text-xs text-muted-foreground">
+          {conversations.length}
+        </span>
       </div>
       <div className="flex min-h-[80px] flex-1 flex-col gap-2 overflow-y-auto">
         {conversations.map((conversation) => (
-          <DraggableCard key={conversation.id} conversation={conversation} onOpen={onOpen} />
+          <DraggableCard
+            key={conversation.id}
+            conversation={conversation}
+            onOpen={onOpen}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function groupByStatus(conversations: ConversationSummary[]): Record<Status, ConversationSummary[]> {
+function groupByStatus(
+  conversations: ConversationSummary[],
+): Record<Status, ConversationSummary[]> {
   const grouped: Record<Status, ConversationSummary[]> = {
     open: [],
     pending: [],
@@ -137,12 +180,24 @@ function groupByStatus(conversations: ConversationSummary[]): Record<Status, Con
   return grouped;
 }
 
-export function ConversationKanban({ conversations }: { conversations: ConversationSummary[] }) {
+export function ConversationKanban({
+  conversations,
+  loading,
+  error,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  hasActiveFilters,
+  onClear,
+  hrefFor,
+}: ConversationResultsProps) {
   const router = useRouter();
-  const [columns, setColumns] = useState<Record<Status, ConversationSummary[]>>(() =>
-    groupByStatus(conversations),
+  const [columns, setColumns] = useState<Record<Status, ConversationSummary[]>>(
+    () => groupByStatus(conversations),
   );
-  const [activeCard, setActiveCard] = useState<ConversationSummary | null>(null);
+  const [activeCard, setActiveCard] = useState<ConversationSummary | null>(
+    null,
+  );
   const isDraggingRef = useRef(false);
 
   // Sem isso, o board só refletia a própria movimentação (drag otimista) —
@@ -155,7 +210,9 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
     }
   }, [conversations]);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   function findColumn(conversationId: string): Status | undefined {
     return (Object.keys(columns) as Status[]).find((status) =>
@@ -167,7 +224,9 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
     const source = findColumn(String(event.active.id));
     if (!source) return;
     isDraggingRef.current = true;
-    setActiveCard(columns[source].find((c) => c.id === event.active.id) ?? null);
+    setActiveCard(
+      columns[source].find((c) => c.id === event.active.id) ?? null,
+    );
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -179,7 +238,9 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
     }
 
     const source = findColumn(String(active.id));
-    const target = COLUMNS.some((c) => c.id === over.id) ? (over.id as Status) : findColumn(String(over.id));
+    const target = COLUMNS.some((c) => c.id === over.id)
+      ? (over.id as Status)
+      : findColumn(String(over.id));
     if (!source || !target || source === target) {
       isDraggingRef.current = false;
       return;
@@ -212,7 +273,26 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
     isDraggingRef.current = false;
   }
 
-  const openConversation = useCallback((id: string) => router.push(`/inbox/${id}`), [router]);
+  const openConversation = useCallback(
+    (id: string) => router.push(hrefFor(id)),
+    [router, hrefFor],
+  );
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-lg border bg-background text-sm text-muted-foreground">
+        Carregando...
+      </div>
+    );
+  }
+  if (conversations.length === 0) {
+    return (
+      <div className="h-full rounded-lg border bg-background">
+        {error && <p className="px-4 pt-3 text-xs text-destructive">{error}</p>}
+        {!error && <EmptyResults hasActiveFilters={hasActiveFilters} onClear={onClear} />}
+      </div>
+    );
+  }
 
   return (
     <DndContext
@@ -222,18 +302,40 @@ export function ConversationKanban({ conversations }: { conversations: Conversat
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-full gap-4 overflow-x-auto rounded-lg border bg-background p-4">
-        {COLUMNS.map((column) => (
-          <Column
-            key={column.id}
-            status={column.id}
-            label={column.label}
-            conversations={columns[column.id]}
-            onOpen={openConversation}
-          />
-        ))}
+      <div className="flex h-full flex-col gap-2">
+        {(error || hasMore) && (
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="text-destructive">{error}</span>
+            {hasMore && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? "Carregando..."
+                  : `Mostrando ${conversations.length} — carregar mais`}
+              </Button>
+            )}
+          </div>
+        )}
+        <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto rounded-lg border bg-background p-4">
+          {COLUMNS.map((column) => (
+            <Column
+              key={column.id}
+              status={column.id}
+              label={column.label}
+              conversations={columns[column.id]}
+              onOpen={openConversation}
+            />
+          ))}
+        </div>
       </div>
-      <DragOverlay>{activeCard ? <ConversationCardView conversation={activeCard} /> : null}</DragOverlay>
+      <DragOverlay>
+        {activeCard ? <ConversationCardView conversation={activeCard} /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
