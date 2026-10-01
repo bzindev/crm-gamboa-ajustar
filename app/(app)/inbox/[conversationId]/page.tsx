@@ -63,6 +63,14 @@ export default async function ConversationPage({
     supabase.from("conversation_tags").select("tag_id").eq("org_id", membership.orgId).eq("conversation_id", conversationId),
   ]);
 
+  // Só aprovados: rascunho/pendente/recusado a Meta não entrega.
+  const { data: approvedTemplates } = await supabase
+    .from("message_templates")
+    .select("id, name, category, body_text, variable_count")
+    .eq("org_id", membership.orgId)
+    .eq("status", "approved")
+    .order("name");
+
   const { data: quickReplies } = await supabase
     .from("quick_replies")
     .select("id, title, body")
@@ -198,6 +206,13 @@ export default async function ConversationPage({
         canClaim={canClaim}
         outsideWindow={outsideWindow}
         quickReplies={quickReplies ?? []}
+        templates={(approvedTemplates ?? []).map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          bodyText: t.body_text,
+          variableCount: t.variable_count,
+        }))}
         contactName={contact?.name ?? null}
       />
     </div>

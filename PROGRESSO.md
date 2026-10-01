@@ -1,5 +1,22 @@
 # PROGRESSO
 
+## 2026-10-01 — Template aprovado direto da conversa
+
+Fora da janela de 24h o rodapé da conversa troca a caixa de texto pelo
+botão "Enviar template"; dentro da janela, "Template aprovado" fica no
+menu do clipe. Diálogo com busca, prévia de como o cliente recebe e o
+campo da variável `{{1}}` já com o primeiro nome do contato.
+
+`sendTemplate` (lib/actions/messages.ts) reusa as mesmas checagens do
+envio normal (organização, canal, contato não anonimizado, só o
+responsável ou conversa livre — enviar assume), menos a janela de 24h.
+Só template `approved` da própria organização; variável sem quebra de
+linha/tab e sem mais de 4 espaços seguidos (a Meta recusa). Mensagem fica
+no histórico com o texto final, igual ao disparo em massa.
+
+Testado em `tests/send-template.test.ts` (banco real, Meta simulada).
+Envio real pra Meta ainda depende do webhook/número.
+
 ## 2026-09-29 (continuação 2) — Docker pra VPS (EasyPanel)
 
 `Dockerfile` (node 24 alpine, 3 etapas, build `standalone`, usuário não

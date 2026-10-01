@@ -7,8 +7,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, ForbiddenError } from "@/lib/auth/require-role";
 import type { ActiveOrgMembership } from "@/lib/auth/session";
-import { sendMessageSchema } from "@/lib/validation/messages";
-import { sendTextMessage, uploadMedia, sendMediaMessage as sendMediaToMeta, sendLocationMessage } from "@/lib/whatsapp/graph-client";
+import { sendMessageSchema, sendTemplateSchema } from "@/lib/validation/messages";
+import {
+  sendTextMessage,
+  uploadMedia,
+  sendMediaMessage as sendMediaToMeta,
+  sendLocationMessage,
+  sendTemplateMessage as sendTemplateToMeta,
+} from "@/lib/whatsapp/graph-client";
 import { mapGraphApiError } from "@/lib/whatsapp/errors";
 import { decryptToken, pgByteaToBuffer } from "@/lib/crypto/token-cipher";
 import { isWithin24hWindow } from "@/lib/whatsapp/window";
@@ -48,11 +54,14 @@ function one<T>(value: T | T[] | null): T | null {
 /**
  * Tudo que precisa ser verdade antes de mandar QUALQUER coisa (texto, foto,
  * localização): conversa desta organização, canal conectado, janela de 24h
- * aberta e — regra de todo papel, sem exceção — só fala quem está atribuído
+ * aberta (menos pra template aprovado — é exatamente pra isso que ele existe) e — regra de todo papel, sem exceção — só fala quem está atribuído
  * (ou ninguém ainda, aí enviar já assume). Gestor que quiser intervir numa
  * conversa de outro vendedor precisa clicar "Assumir conversa" antes.
  */
-async function loadSendContext(conversationId: string): Promise<{ error: string } | { ctx: SendContext }> {
+async function loadSendContext(
+  conversationId: string,
+  options: { allowOutsideWindow?: boolean } = {},
+): Promise<{ error: string } | { ctx: SendContext }> {
   let membership;
   try {
     membership = await requireRole("agent");
@@ -83,7 +92,7 @@ async function loadSendContext(conversationId: string): Promise<{ error: string 
   if (conversation.assigned_to && conversation.assigned_to !== membership.userId) {
     return { error: "Essa conversa está com outro vendedor. Assuma antes de responder." };
   }
-  if (!isWithin24hWindow(conversation.last_inbound_at)) {
+  if (!options.allowOutsideWindow && !isWithin24hWindow(conversation.last_inbound_at)) {
     return { error: "Fora da janela de 24h — só é possível responder com um template aprovado." };
   }
 
@@ -298,5 +307,48 @@ export async function sendLocation(input: z.input<typeof locationSchema>): Promi
   }
 
   const saveError = await saveOutbound(ctx, { wamid, type: "location", content: { body: null, location } });
+  return saveError ? { error: saveError } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Template aprovado: funciona dentro OU fora da janela de 24h. Só templates
+// desta organização com status "approved" — rascunho/pendente/recusado a
+// Meta não entrega.
+// ---------------------------------------------------------------------------
+
+export async function sendTemplate(input: z.input<typeof sendTemplateSchema>): Promise<MessageActionState> {
+  const parsed = sendTemplateSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
+
+  const loaded = await loadSendContext(parsed.data.conversationId, { allowOutsideWindow: true });
+  if ("error" in loaded) return { error: loaded.error };
+  const { ctx } = loaded;
+
+  const { data: template } = await ctx.supabase
+    .from("message_templates")
+    .select("name, language, body_text, variable_count")
+    .eq("id", parsed.data.templateId)
+    .eq("org_id", ctx.membership.orgId)
+    .eq("status", "approved")
+    .maybeSingle();
+  if (!template) return { error: "Template não encontrado ou ainda não aprovado pela Meta." };
+
+  const variable = parsed.data.variable ?? "";
+  if (template.variable_count > 0 && !variable) return { error: "Preencha o texto da variável {{1}}." };
+  const bodyParams = template.variable_count > 0 ? [variable] : [];
+
+  await claimIfUnassigned(ctx);
+
+  let wamid: string;
+  try {
+    ({ wamid } = await sendTemplateToMeta(ctx.phoneNumberId, ctx.accessToken, ctx.to, template.name, template.language, bodyParams));
+  } catch (err) {
+    return { error: mapGraphApiError(err) };
+  }
+
+  // Mesmo formato do disparo em massa: o texto final já com a variável, pra
+  // aparecer no chat do jeito que o cliente recebeu.
+  const body = bodyParams.length ? template.body_text.replace("{{1}}", bodyParams[0]) : template.body_text;
+  const saveError = await saveOutbound(ctx, { wamid, type: "template", content: { body, template_name: template.name } });
   return saveError ? { error: saveError } : null;
 }

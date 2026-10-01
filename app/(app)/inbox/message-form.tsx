@@ -9,6 +9,7 @@ import {
   FileText,
   Mic,
   MapPin,
+  MessageSquareText,
   X,
 } from "lucide-react";
 import {
@@ -36,6 +37,7 @@ import {
   formatBytes,
 } from "@/lib/whatsapp/media-rules";
 import { LocationDialog } from "./location-dialog";
+import { TemplateDialog, type TemplateOption } from "./template-dialog";
 
 export type QuickReplyOption = { id: string; title: string; body: string };
 
@@ -47,8 +49,11 @@ export function MessageForm({
   canClaim,
   outsideWindow,
   quickReplies = [],
+  templates = [],
   contactName = null,
 }: {
+  /** Templates aprovados da organização — únicos que a Meta entrega. */
+  templates?: TemplateOption[];
   quickReplies?: QuickReplyOption[];
   contactName?: string | null;
   conversationId: string;
@@ -64,6 +69,7 @@ export function MessageForm({
   const [pending, setPending] = useState<PendingFile | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [locationOpen, setLocationOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [isSendingMedia, startMedia] = useTransition();
 
   // Insere no ponto do cursor (ou no fim), sem apagar o que já foi digitado
@@ -188,12 +194,33 @@ export function MessageForm({
     );
   }
 
+  const templateDialog = (
+    <TemplateDialog
+      conversationId={conversationId}
+      templates={templates}
+      contactName={contactName}
+      open={templateOpen}
+      onOpenChange={setTemplateOpen}
+    />
+  );
+
   if (outsideWindow) {
+    // Depois de 24h sem mensagem do cliente, a Meta só aceita template
+    // aprovado — o resto da caixa de mensagem some pra não induzir ao erro.
     return (
-      <div className="border-t p-3 text-center text-xs text-muted-foreground">
-        Fora da janela de 24h — só é possível responder com um template aprovado
-        (fora do escopo desta fase).
-      </div>
+      <>
+        <div className="flex flex-wrap items-center justify-center gap-3 border-t p-3">
+          <p className="text-xs text-muted-foreground">
+            Fora da janela de 24h — só é possível responder com um template
+            aprovado.
+          </p>
+          <Button type="button" size="sm" onClick={() => setTemplateOpen(true)}>
+            <MessageSquareText className="size-4" />
+            Enviar template
+          </Button>
+        </div>
+        {templateDialog}
+      </>
     );
   }
 
@@ -297,6 +324,10 @@ export function MessageForm({
               <DropdownMenuItem onSelect={() => setLocationOpen(true)}>
                 <MapPin className="size-4" /> Localização
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setTemplateOpen(true)}>
+                <MessageSquareText className="size-4" /> Template aprovado
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -392,6 +423,7 @@ export function MessageForm({
         open={locationOpen}
         onOpenChange={setLocationOpen}
       />
+      {templateDialog}
     </>
   );
 }
