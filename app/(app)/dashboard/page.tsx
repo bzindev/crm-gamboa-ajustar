@@ -314,7 +314,7 @@ export default async function DashboardPage({
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0d0d0d] to-[#3f2d0a] p-6 text-white ring-1 ring-white/10 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold sm:text-3xl">Bem-vindo de volta 👋</h1>
+            <h1 className="text-2xl font-bold sm:text-3xl">Bem-vindo de volta</h1>
             <p className="mt-1 text-sm text-white/60">
               Você está em <span className="font-medium text-white/80">{membership.orgName}</span>.
             </p>
