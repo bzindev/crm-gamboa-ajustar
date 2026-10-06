@@ -27,6 +27,13 @@ export async function POST(request: NextRequest) {
 
   const appSecret = process.env.WHATSAPP_APP_SECRET;
   if (!appSecret || !verifyWebhookSignature(rawBody, signatureHeader, appSecret)) {
+    // Só o motivo — nunca a chave, a assinatura nem o corpo (dado pessoal).
+    // Sem esse log, uma chave errada/vazia some em silêncio: a Meta recebe
+    // 401 e nada fica gravado em lugar nenhum.
+    console.warn(
+      "[webhook] assinatura recusada:",
+      !appSecret ? "WHATSAPP_APP_SECRET vazio no servidor" : !signatureHeader ? "sem cabeçalho de assinatura" : "assinatura não confere (chave do app diferente da usada pela Meta)",
+    );
     return NextResponse.json({ error: "Assinatura inválida." }, { status: 401 });
   }
 
