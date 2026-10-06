@@ -16,11 +16,14 @@ export default async function WhatsAppSettingsPage() {
   const membership = await requireRoleOrRedirect("admin");
   const supabase = await createClient();
 
-  const { data: channel } = await supabase
+  // A organização pode ter mais de um canal salvo (ex.: um número antigo
+  // desconectado + o atual). Mostra o conectado; sem nenhum, o mais recente.
+  const { data: channels } = await supabase
     .from("channels")
-    .select("id, waba_id, phone_number_id, display_phone_number, status, last_health_check_at")
+    .select("id, waba_id, phone_number_id, display_phone_number, status, last_health_check_at, updated_at")
     .eq("org_id", membership.orgId)
-    .maybeSingle();
+    .order("updated_at", { ascending: false });
+  const channel = channels?.find((c) => c.status === "connected") ?? channels?.[0] ?? null;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const webhookUrl = `${appUrl}/api/webhooks/whatsapp`;
